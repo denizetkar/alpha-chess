@@ -7,24 +7,33 @@ authors = [
 ]
 dependencies = [
     "python-chess>=1.99",
-    "torch>=2.0.0",
-    "torchvision>=0.15.0",
-    "torchrl>=0.2.0",
-    "numpy>=1.20.0",
-    "tqdm>=4.0.0",
-    "tensorboard>=2.0.0",
-    "PyYAML>=6.0", # For configuration
+    "torch>=2.7.1",
+    "torchvision>=0.22.1",
+    "torchrl>=0.8.1",
+    "numpy>=2.3.0",
+    "tqdm>=4.67.1",
+    "tensorboard>=2.19.0",
+    "PyYAML>=6.0.2", # For configuration
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.12, <3.13"
 readme = "README.md"
-license = { text = "MIT" }
 
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=80.9.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
-[tool.uv]
-python = "3.13" # Specify Python version for uv
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cu128" },
+]
+torchvision = [
+  { index = "pytorch-cu128" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
