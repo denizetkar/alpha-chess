@@ -1,0 +1,30 @@
+[project]
+name = "alpha-chess"
+version = "0.1.0"
+description = "A chess bot inspired by AlphaGo, implemented with PyTorch."
+authors = [
+    { name = "Cline", email = "cline@example.com" }
+]
+dependencies = [
+    "python-chess>=1.99",
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+    "torchrl>=0.2.0",
+    "numpy>=1.20.0",
+    "tqdm>=4.0.0",
+    "tensorboard>=2.0.0",
+    "PyYAML>=6.0", # For configuration
+]
+requires-python = ">=3.9"
+readme = "README.md"
+license = { text = "MIT" }
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.uv]
+python = "3.13" # Specify Python version for uv
