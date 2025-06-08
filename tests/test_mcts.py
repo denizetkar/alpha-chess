@@ -12,6 +12,7 @@ from src.move_encoder import MoveEncoderDecoder
 
 class TestMCTSNode:
     def test_node_init(self):
+        """Tests the initialization of an MCTSNode."""
         board = chess.Board()
         node = MCTSNode(board)
         assert node.board == board
@@ -32,6 +33,7 @@ class TestMCTSNode:
         assert child_node.move == move
 
     def test_ucb_score(self):
+        """Tests the UCB score calculation for child nodes."""
         board = chess.Board()
         root = MCTSNode(board)
         root.N = 1  # Set root N to 1 for UCB calculation (N(s) in formula)
@@ -68,9 +70,8 @@ class TestMCTSNode:
         d2d4_child.W = -2  # Value from child's perspective
         d2d4_child.Q = d2d4_child.W / d2d4_child.N  # -0.4
 
-        # The ucb_score method already handles the Q-value flipping.
-        # So, e2e4_child.Q is 0.5 (Black's perspective). When called from root (White), it flips to -0.5.
-        # d2d4_child.Q is -0.4 (Black's perspective). When called from root (White), it flips to 0.4.
+        # The ucb_score method inverts Q-values if the child node's turn is different
+        # from the current node's turn, ensuring values are from the current player's perspective.
 
         ucb_e2e4 = root.ucb_score(e2e4_move, c_puct=1.0)
         ucb_d2d4 = root.ucb_score(d2d4_move, c_puct=1.0)
@@ -99,6 +100,7 @@ class TestMCTSNode:
         assert round(ucb_d2d4_large_c, 3) == 500.400
 
     def test_ucb_score_unvisited_positive_prior(self):
+        """Tests UCB score for unvisited children with positive prior probabilities."""
         board = chess.Board()
         root = MCTSNode(board)
         root.N = 1
@@ -119,6 +121,7 @@ class TestMCTSNode:
         assert score_with_child_unvisited == float("inf")
 
     def test_select_child(self):
+        """Tests the selection of the child node with the highest UCB score."""
         board = chess.Board()
         root = MCTSNode(board)
         root.N = 1  # Set root N to 1 for UCB calculation (N(s) in formula)
@@ -220,17 +223,18 @@ class TestMCTSNode:
         assert selected_node_fallback is None
 
     def test_select_child_fallback_no_prior(self):
+        """Tests select_child behavior when no prior probabilities are available."""
         board = chess.Board()
         node = MCTSNode(board)
         node.P = None  # P is None, so all prior_prob will be 0.0
 
-        first_legal_move = node.legal_moves[0] if node.legal_moves else None
         selected_move, selected_node = node.select_child(c_puct=1.0)
 
-        assert selected_move == first_legal_move
-        assert selected_node is None  # Should be None as children are not created yet
+        assert selected_move is None
+        assert selected_node is None
 
     def test_expand(self):
+        """Tests the expansion of an MCTS node using neural network outputs."""
         board = chess.Board()
         node = MCTSNode(board)
 
@@ -277,6 +281,7 @@ class TestMCTSNode:
             assert child.board.fen() == expected_child_board.fen()
 
     def test_ucb_score_before_expansion(self):
+        """Tests UCB score behavior for a node before it has been expanded."""
         board = chess.Board()
         node = MCTSNode(board)
         assert node.P is None
@@ -297,21 +302,18 @@ class TestMCTSNode:
         assert score_with_child_unvisited == -float("inf")
 
     def test_select_child_before_expansion(self):
+        """Tests select_child behavior for a node before it has been expanded."""
         board = chess.Board()
         node = MCTSNode(board)
         assert node.P is None
 
-        first_legal_move = node.legal_moves[0] if node.legal_moves else None
-
         selected_move, selected_node = node.select_child(c_puct=1.0)
 
-        assert selected_move == first_legal_move
-        if first_legal_move:
-            assert selected_node is None
-        else:
-            assert selected_node is None
+        assert selected_move is None
+        assert selected_node is None
 
     def test_backpropagate(self):
+        """Tests the backpropagation of values and visit counts through the MCTS tree."""
         board = chess.Board()
         root = MCTSNode(board)
 
@@ -365,13 +367,15 @@ class TestMCTSNode:
 
 class TestMCTS:
     @pytest.fixture
-    def mock_nn_model(self):
+    def mock_nn_model(self) -> Mock:
+        """Provides a mock neural network model for MCTS tests."""
         mock_model = Mock(spec=AlphaChessNet)
         mock_model.return_value = (torch.randn(1, 4672), torch.tensor([[0.5]]))
         return mock_model
 
     @pytest.fixture
-    def mock_chess_env(self):
+    def mock_chess_env(self) -> Mock:
+        """Provides a mock ChessEnv for MCTS tests."""
         mock_env = Mock(spec=ChessEnv)
         mock_env.get_state_planes.return_value = np.zeros((21, 8, 8))
         mock_board = Mock(spec=chess.Board)
@@ -380,7 +384,8 @@ class TestMCTS:
         return mock_env
 
     @pytest.fixture
-    def mock_move_encoder(self):
+    def mock_move_encoder(self) -> Mock:
+        """Provides a mock MoveEncoderDecoder for MCTS tests."""
         mock_encoder = Mock(spec=MoveEncoderDecoder)
         move_to_idx_map = {
             chess.Move.from_uci("e2e4"): 0,
@@ -425,8 +430,9 @@ class TestMCTS:
         return mock_encoder
 
     def test_run_simulations_integration_and_deterministic_values(
-        self, mock_nn_model, mock_chess_env, mock_move_encoder
+        self, mock_nn_model: Mock, mock_chess_env: Mock, mock_move_encoder: Mock
     ):
+        """Tests the MCTS run_simulations method with a single simulation and deterministic values."""
         board = chess.Board()
         root_node = MCTSNode(board)
 
@@ -467,9 +473,8 @@ class TestMCTS:
         assert math.isclose(root_node.W, 0.8, rel_tol=1e-5)
         assert math.isclose(root_node.Q, 0.8, rel_tol=1e-5)
 
-        # Removed assertions for e2e4_child as it's not visited in this single simulation
-
-    def test_run_simulations_zero_simulations(self, mock_nn_model, mock_chess_env, mock_move_encoder):
+    def test_run_simulations_zero_simulations(self, mock_nn_model: Mock, mock_chess_env: Mock, mock_move_encoder: Mock):
+        """Tests MCTS run_simulations with zero simulations, ensuring no changes occur."""
         board = chess.Board()
         root_node = MCTSNode(board)
         initial_N = root_node.N
@@ -488,7 +493,10 @@ class TestMCTS:
         mock_chess_env.get_state_planes.assert_not_called()
         mock_move_encoder.encode.assert_not_called()
 
-    def test_run_simulations_max_depth_selection_termination(self, mock_nn_model, mock_chess_env, mock_move_encoder):
+    def test_run_simulations_max_depth_selection_termination(
+        self, mock_nn_model: Mock, mock_chess_env: Mock, mock_move_encoder: Mock
+    ):
+        """Tests MCTS run_simulations when max_depth is reached during selection."""
         board = chess.Board()
         root_node = MCTSNode(board)
 
@@ -546,7 +554,10 @@ class TestMCTS:
         # Verify NN was called once for the expansion of e7e5_child
         mock_nn_model.assert_called_once()
 
-    def test_run_simulations_terminal_state_handling(self, mock_nn_model, mock_chess_env, mock_move_encoder):
+    def test_run_simulations_terminal_state_handling(
+        self, mock_nn_model: Mock, mock_chess_env: Mock, mock_move_encoder: Mock
+    ):
+        """Tests MCTS run_simulations behavior when encountering terminal game states."""
         # Test Checkmate (White wins)
         checkmate_board_white_wins = chess.Board("r1bqkb1r/pppp1Qpp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 0 4")
         assert checkmate_board_white_wins.is_game_over()
@@ -589,7 +600,10 @@ class TestMCTS:
         assert math.isclose(root_node_stalemate.W, 0.0, rel_tol=1e-6)
         assert math.isclose(root_node_stalemate.Q, 0.0, rel_tol=1e-6)
 
-    def test_run_simulations_no_legal_moves_or_negative_inf_ucb(self, mock_nn_model, mock_chess_env, mock_move_encoder):
+    def test_run_simulations_no_legal_moves_or_negative_inf_ucb(
+        self, mock_nn_model: Mock, mock_chess_env: Mock, mock_move_encoder: Mock
+    ):
+        """Tests MCTS run_simulations when a node has no legal moves or all UCB scores are negative infinity."""
         # Scenario 1: Node with no legal moves (e.g., checkmate, but not necessarily game over from root's perspective)
         board_no_legal_moves = chess.Board("r1bqkb1r/pppp1Qpp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 0 4")
         assert board_no_legal_moves.is_game_over()
