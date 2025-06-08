@@ -158,6 +158,7 @@ class MCTS:
         model: torch.nn.Module,
         chess_env: ChessEnv,
         move_encoder: MoveEncoderDecoder,
+        device: torch.device,  # Add device parameter
         c_puct: float = 1.0,
         max_depth: int = 40,
     ) -> None:
@@ -174,6 +175,7 @@ class MCTS:
         self.model: torch.nn.Module = model
         self.chess_env: ChessEnv = chess_env
         self.move_encoder: MoveEncoderDecoder = move_encoder
+        self.device: torch.device = device  # Store device
         self.c_puct: float = c_puct
         self.max_depth: int = max_depth
 
@@ -260,7 +262,7 @@ class MCTS:
                 board_state_planes: np.ndarray = self.chess_env.get_state_planes()
                 self.chess_env.board = original_board  # Restore original board
 
-                nn_input: torch.Tensor = torch.from_numpy(board_state_planes).float().unsqueeze(0)
+                nn_input: torch.Tensor = torch.from_numpy(board_state_planes).float().unsqueeze(0).to(self.device)
 
                 with torch.no_grad():
                     policy_logits: torch.Tensor

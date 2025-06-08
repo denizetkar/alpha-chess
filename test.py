@@ -1,7 +1,7 @@
+import argparse
 import torch
 import chess
 import yaml
-import os
 from tqdm import tqdm  # Import tqdm
 from src.chess_env import ChessEnv
 from src.nn_model import AlphaChessNet
@@ -9,14 +9,47 @@ from src.mcts import MCTSNode, MCTS
 from src.move_encoder import MoveEncoderDecoder
 
 
-class Tester:
-    def __init__(self, config_path="config.yaml"):
-        self.config = self._load_config(config_path)
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+def load_config(config_path: str) -> dict:
+    """
+    Loads configuration from a YAML file.
 
-        self.chess_env = ChessEnv()
-        self.move_encoder = MoveEncoderDecoder()
-        self.model: torch.nn.Module = AlphaChessNet(  # Explicitly type as torch.nn.Module
+    Args:
+        config_path (str): The path to the YAML configuration file.
+
+    Returns:
+        dict: A dictionary containing the loaded configuration.
+    """
+    try:
+        with open(config_path, "r") as f:
+            return yaml.safe_load(f)
+    except FileNotFoundError:
+        print(f"Error: Config file not found at {config_path}")
+        exit(1)
+    except yaml.YAMLError as e:
+        print(f"Error parsing config file: {e}")
+        exit(1)
+
+
+class Tester:
+    """
+    A class for testing the AlphaChess agent in self-play or human-play modes.
+    It handles model loading, game simulation, and interaction with human players.
+    """
+
+    def __init__(self, config: dict):
+        """
+        Initializes the Tester with a given configuration.
+
+        Args:
+            config (dict): A dictionary containing the testing configuration,
+                           including model, MCTS, and checkpointing settings.
+        """
+        self.config: dict = config
+        self.device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        self.chess_env: ChessEnv = ChessEnv()
+        self.move_encoder: MoveEncoderDecoder = MoveEncoderDecoder()
+        self.model: AlphaChessNet = AlphaChessNet(
             num_residual_blocks=self.config["model"]["num_residual_blocks"],
             num_filters=self.config["model"]["num_filters"],
         ).to(self.device)
@@ -29,30 +62,43 @@ class Tester:
 
         self.checkpoint_dir = self.config["checkpointing"]["checkpoint_dir"]
 
-    def _load_config(self, config_path):
-        with open(config_path, "r") as f:
-            return yaml.safe_load(f)
+    def _load_model(self, checkpoint_path: str) -> None:
+        """
+        Loads the model state from a given checkpoint path.
 
-    def _load_model(self, checkpoint_path):
-        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        Args:
+            checkpoint_path (str): The file path to the model checkpoint.
+        """
+        checkpoint: dict = torch.load(checkpoint_path, map_location=self.device)
         self.model.load_state_dict(checkpoint["model_state_dict"])  # type: ignore
         print(f"Model loaded from {checkpoint_path}")
 
-    def _play_game_with_agent(self, agent_color: chess.Color):
+    def _play_game_with_agent(self, agent_color: chess.Color) -> tuple[str, list[chess.Move]]:
+        """
+        Simulates a single game where the agent plays against a human or another agent.
+
+        Args:
+            agent_color (chess.Color): The color (chess.WHITE or chess.BLACK) the agent plays as.
+
+        Returns:
+            tuple[str, list[chess.Move]]: A tuple containing the game result string (e.g., '1-0', '0-1', '1/2-1/2')
+                                          and a list of moves made during the game.
+        """
         self.chess_env.reset()
-        current_board = self.chess_env.board.copy()
-        mcts = MCTS(
+        current_board: chess.Board = self.chess_env.board.copy()
+        mcts: MCTS = MCTS(
             self.model,
             self.chess_env,
             self.move_encoder,
+            self.device,  # Pass device
             c_puct=self.config["mcts"]["c_puct"],
-        )  # type: ignore
+        )
 
-        game_moves = []
+        game_moves: list[chess.Move] = []
         while not current_board.is_game_over():
             if current_board.turn == agent_color:
                 # Agent's turn
-                root_node = MCTSNode(current_board)
+                root_node: MCTSNode = MCTSNode(current_board)
                 mcts.run_simulations(root_node, self.config["mcts"]["simulations_per_move"])
 
                 # Select move based on visit counts (deterministic for testing)
@@ -85,9 +131,15 @@ class Tester:
 
         return current_board.result(), game_moves
 
-    def run_self_play_test(self, num_games: int):
+    def run_self_play_test(self, num_games: int) -> None:
+        """
+        Runs a specified number of self-play test games.
+
+        Args:
+            num_games (int): The number of self-play games to run.
+        """
         print(f"\n--- Running {num_games} Self-Play Test Games ---")
-        results = {"1-0": 0, "0-1": 0, "1/2-1/2": 0}
+        results: dict[str, int] = {"1-0": 0, "0-1": 0, "1/2-1/2": 0}
 
         for i in tqdm(range(num_games), desc="Self-Play Test"):
             # Agent plays against itself (White vs Black)
@@ -105,8 +157,9 @@ class Tester:
                 self.model,
                 self.chess_env,
                 self.move_encoder,
+                self.device,  # Pass device
                 c_puct=self.config["mcts"]["c_puct"],
-            )  # type: ignore
+            )
 
             while not current_board.is_game_over():
                 mcts.run_simulations(root_node, self.config["mcts"]["simulations_per_move"])
@@ -144,9 +197,16 @@ class Tester:
             print(f"{res}: {count} games")
         print(f"Total games: {num_games}")
 
-    def run_human_play_test(self):
+    def run_human_play_test(self, agent_color: chess.Color) -> None:
+        """
+        Runs a human vs. AlphaChess game in a command-line interface.
+
+        Args:
+            agent_color (chess.Color): The color (chess.WHITE or chess.BLACK) the agent plays as.
+        """
         print("\n--- Starting Human vs AlphaChess (CLI) ---")
         print("Enter moves in UCI format (e.g., 'e2e4'). Type 'quit' to exit.")
+        print(f"AlphaChess agent plays as: {'White' if agent_color == chess.WHITE else 'Black'}")
 
         self.chess_env.reset()
         current_board = self.chess_env.board.copy()
@@ -154,29 +214,16 @@ class Tester:
             self.model,
             self.chess_env,
             self.move_encoder,
+            self.device,  # Pass device
             c_puct=self.config["mcts"]["c_puct"],
-        )  # type: ignore
+        )
 
         while not current_board.is_game_over():
             print("\n" + str(current_board))
             print(f"Turn: {'White' if current_board.turn == chess.WHITE else 'Black'}")
 
-            if current_board.turn == chess.WHITE:  # Assuming human plays White
-                try:
-                    uci_move = input("Your move (UCI): ")
-                    if uci_move.lower() == "quit":
-                        print("Exiting game.")
-                        break
-
-                    move = chess.Move.from_uci(uci_move)
-                    if move not in current_board.legal_moves:
-                        print("Illegal move. Try again.")
-                        continue
-                    current_board.push(move)
-                except ValueError:
-                    print("Invalid UCI format. Try again.")
-                    continue
-            else:  # Agent plays Black
+            if current_board.turn == agent_color:
+                # Agent's turn
                 print("AlphaChess is thinking...")
                 root_node = MCTSNode(current_board)
                 mcts.run_simulations(root_node, self.config["mcts"]["simulations_per_move"])
@@ -199,6 +246,21 @@ class Tester:
 
                 print(f"AlphaChess plays: {chosen_move.uci()}")
                 current_board.push(chosen_move)
+            else:  # Human's turn
+                try:
+                    uci_move = input("Your move (UCI): ")
+                    if uci_move.lower() == "quit":
+                        print("Exiting game.")
+                        break
+
+                    move = chess.Move.from_uci(uci_move)
+                    if move not in current_board.legal_moves:
+                        print("Illegal move. Try again.")
+                        continue
+                    current_board.push(move)
+                except ValueError:
+                    print("Invalid UCI format. Try again.")
+                    continue
 
             self.chess_env.board = current_board.copy()  # Update env board
 
@@ -206,47 +268,122 @@ class Tester:
         print(f"Result: {current_board.result()}")
 
 
+def _apply_cli_overrides(config: dict, args: argparse.Namespace) -> dict:
+    """
+    Applies command-line arguments to override configuration values.
+
+    Args:
+        config (dict): The base configuration dictionary.
+        args (argparse.Namespace): The parsed command-line arguments.
+
+    Returns:
+        dict: The updated configuration dictionary with CLI overrides applied.
+    """
+    if args.simulations_per_move is not None:
+        config["mcts"]["simulations_per_move"] = args.simulations_per_move
+    if args.c_puct is not None:
+        config["mcts"]["c_puct"] = args.c_puct
+    if args.use_torch_compile is not None:
+        config["testing"]["use_torch_compile"] = args.use_torch_compile
+
+    # Ensure checkpoint_path is set in config for Tester to use
+    config["checkpointing"]["load_checkpoint_path"] = args.checkpoint_path
+
+    return config
+
+
+def main() -> None:
+    """
+    Main function for the AlphaChess testing script.
+    Handles argument parsing, configuration loading, and execution of
+    self-play or human-play test modes.
+    """
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(description="AlphaChess Testing Script")
+
+    # Mode selection
+    mode_group: argparse._MutuallyExclusiveGroup = parser.add_mutually_exclusive_group(required=True)
+    mode_group.add_argument(
+        "--self-play",
+        action="store_true",
+        help="Run self-play test games.",
+    )
+    mode_group.add_argument(
+        "--human-play",
+        action="store_true",
+        help="Run human vs. AlphaChess game.",
+    )
+
+    # General configuration
+    parser.add_argument(
+        "--config_path",
+        type=str,
+        default="test_config.yaml",
+        help="Path to the configuration YAML file.",
+    )
+    parser.add_argument(
+        "--checkpoint_path",
+        type=str,
+        required=True,
+        help="Path to the trained model checkpoint (.pth file).",
+    )
+    parser.add_argument(
+        "--use_torch_compile",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use torch.compile for model optimization (default: True).",
+    )
+
+    # Self-play specific arguments
+    self_play_group = parser.add_argument_group("Self-Play Options")
+    self_play_group.add_argument(
+        "--num_games",
+        type=int,
+        default=5,
+        help="Number of self-play games to run.",
+    )
+
+    # Human-play specific arguments
+    human_play_group = parser.add_argument_group("Human-Play Options")
+    human_play_group.add_argument(
+        "--agent_color",
+        type=str,
+        choices=["white", "black"],
+        default="black",
+        help="Color of the AlphaChess agent in human-play mode (white or black).",
+    )
+
+    # MCTS overrides
+    mcts_group = parser.add_argument_group("MCTS Overrides")
+    mcts_group.add_argument(
+        "--simulations_per_move",
+        type=int,
+        help="Override the number of MCTS simulations per move.",
+    )
+    mcts_group.add_argument(
+        "--c_puct",
+        type=float,
+        help="Override the MCTS C_PUCT value.",
+    )
+
+    args = parser.parse_args()
+
+    config = load_config(args.config_path)
+    config = _apply_cli_overrides(config, args)
+
+    tester = Tester(config)  # Pass the config directly
+
+    if args.checkpoint_path:
+        tester._load_model(args.checkpoint_path)
+
+    try:
+        if args.self_play:
+            tester.run_self_play_test(num_games=args.num_games)
+        elif args.human_play:
+            tester.run_human_play_test(agent_color=chess.WHITE if args.agent_color == "white" else chess.BLACK)
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        exit(1)
+
+
 if __name__ == "__main__":
-    # Create a dummy config.yaml if it doesn't exist
-    config_path = "config.yaml"
-    if not os.path.exists(config_path):
-        dummy_config_content = """
-        model:
-          num_residual_blocks: 2
-          num_filters: 64
-        mcts:
-          c_puct: 1.0
-          simulations_per_move: 10
-        training:
-          learning_rate: 0.001
-          batch_size: 32
-          num_iterations: 2
-          num_self_play_games_per_iteration: 5
-          replay_buffer_capacity: 100
-          num_training_steps: 50
-          use_mixed_precision: True
-          l2_regularization_coeff: 0.0001
-        checkpointing:
-          checkpoint_dir: "checkpoints"
-          checkpoint_frequency: 1
-          load_checkpoint: False
-          load_checkpoint_path: ""
-        logging:
-          tensorboard_log_dir: "runs/alpha_chess_experiment"
-        testing: # New section for testing specific configs
-          use_torch_compile: True # New parameter for torch.compile in testing
-        """
-        with open(config_path, "w") as f:
-            f.write(dummy_config_content)
-
-    tester = Tester()
-
-    # Example usage:
-    # Load a trained model (replace with actual path to a .pth file)
-    # tester._load_model("checkpoints/model_iter_1.pth")
-
-    # Run self-play test games
-    # tester.run_self_play_test(num_games=5)
-
-    # Run human vs agent CLI game
-    tester.run_human_play_test()
+    main()

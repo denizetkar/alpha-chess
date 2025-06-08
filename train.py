@@ -331,7 +331,7 @@ def main():
     general_group.add_argument(
         "--config",
         type=str,
-        default="config.yaml",
+        default="train_config.yaml",
         help="Path to the main configuration YAML file.",
     )
     general_group.add_argument(

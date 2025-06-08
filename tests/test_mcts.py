@@ -466,7 +466,9 @@ class TestMCTS:
             (policy_logits_root, torch.tensor([[0.8]])),  # Value for initial board
         ]
 
-        mcts: MCTS = MCTS(mock_nn_model, mock_chess_env, mock_move_encoder, c_puct=1.0, max_depth=1)
+        mcts: MCTS = MCTS(
+            mock_nn_model, mock_chess_env, mock_move_encoder, c_puct=1.0, max_depth=1, device=torch.device("cpu")
+        )
         num_simulations: int = 1
         mcts.run_simulations(root_node, num_simulations)
 
@@ -500,7 +502,7 @@ class TestMCTS:
         initial_Q: float = root_node.Q
         initial_is_expanded: bool = root_node.is_expanded
 
-        mcts: MCTS = MCTS(mock_nn_model, mock_chess_env, mock_move_encoder)
+        mcts: MCTS = MCTS(mock_nn_model, mock_chess_env, mock_move_encoder, device=torch.device("cpu"))
         mcts.run_simulations(root_node, 0)
 
         assert root_node.N == initial_N
@@ -542,7 +544,9 @@ class TestMCTS:
 
         # Set max_depth to 2. Path: root (depth 0) -> e2e4 (depth 1) -> e7e5 (depth 2).
         # e7e5_child is at max_depth, so it should be expanded and backpropagated from.
-        mcts: MCTS = MCTS(mock_nn_model, mock_chess_env, mock_move_encoder, c_puct=1.0, max_depth=2)
+        mcts: MCTS = MCTS(
+            mock_nn_model, mock_chess_env, mock_move_encoder, c_puct=1.0, max_depth=2, device=torch.device("cpu")
+        )
         num_simulations: int = 1
 
         # Mock NN output for the leaf node (e7e5_child)
@@ -584,7 +588,9 @@ class TestMCTS:
         assert checkmate_board_white_wins.result() == "1-0"
 
         root_node_white_wins: MCTSNode = MCTSNode(checkmate_board_white_wins)
-        mcts_white_wins: MCTS = MCTS(mock_nn_model, mock_chess_env, mock_move_encoder, c_puct=1.0, max_depth=1)
+        mcts_white_wins: MCTS = MCTS(
+            mock_nn_model, mock_chess_env, mock_move_encoder, c_puct=1.0, max_depth=1, device=torch.device("cpu")
+        )
         mcts_white_wins.run_simulations(root_node_white_wins, 1)
 
         assert root_node_white_wins.N == 1
@@ -601,7 +607,9 @@ class TestMCTS:
         assert checkmate_board_black_wins.result() == "0-1"
 
         root_node_black_wins: MCTSNode = MCTSNode(checkmate_board_black_wins)
-        mcts_black_wins: MCTS = MCTS(mock_nn_model, mock_chess_env, mock_move_encoder, c_puct=1.0, max_depth=1)
+        mcts_black_wins: MCTS = MCTS(
+            mock_nn_model, mock_chess_env, mock_move_encoder, c_puct=1.0, max_depth=1, device=torch.device("cpu")
+        )
         mcts_black_wins.run_simulations(root_node_black_wins, 1)
 
         assert root_node_black_wins.N == 1
@@ -615,7 +623,9 @@ class TestMCTS:
         assert stalemate_board.result() == "1/2-1/2"
 
         root_node_stalemate: MCTSNode = MCTSNode(stalemate_board)
-        mcts_stalemate: MCTS = MCTS(mock_nn_model, mock_chess_env, mock_move_encoder, c_puct=1.0, max_depth=1)
+        mcts_stalemate: MCTS = MCTS(
+            mock_nn_model, mock_chess_env, mock_move_encoder, c_puct=1.0, max_depth=1, device=torch.device("cpu")
+        )
         mcts_stalemate.run_simulations(root_node_stalemate, 1)
 
         assert root_node_stalemate.N == 1
@@ -635,7 +645,9 @@ class TestMCTS:
         assert not list(board_no_legal_moves.legal_moves)
 
         root_node_no_legal_moves: MCTSNode = MCTSNode(board_no_legal_moves)
-        mcts_no_legal_moves: MCTS = MCTS(mock_nn_model, mock_chess_env, mock_move_encoder, c_puct=1.0, max_depth=1)
+        mcts_no_legal_moves: MCTS = MCTS(
+            mock_nn_model, mock_chess_env, mock_move_encoder, c_puct=1.0, max_depth=1, device=torch.device("cpu")
+        )
         mcts_no_legal_moves.run_simulations(root_node_no_legal_moves, 1)
 
         assert root_node_no_legal_moves.N == 1
@@ -662,7 +674,9 @@ class TestMCTS:
             (policy_logits_e2e4, torch.tensor([[0.5]])),  # Value for e2e4 board
         ]
 
-        mcts_neg_inf_ucb: MCTS = MCTS(mock_nn_model, mock_chess_env, mock_move_encoder, c_puct=1.0, max_depth=1)
+        mcts_neg_inf_ucb: MCTS = MCTS(
+            mock_nn_model, mock_chess_env, mock_move_encoder, c_puct=1.0, max_depth=1, device=torch.device("cpu")
+        )
         mcts_neg_inf_ucb.run_simulations(root_node_neg_inf_ucb, 1)
 
         # After 1 simulation:
