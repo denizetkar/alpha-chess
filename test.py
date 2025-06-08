@@ -2,14 +2,16 @@ import argparse
 import torch
 import chess
 import yaml
+import os  # Import os
 from tqdm import tqdm  # Import tqdm
 from src.chess_env import ChessEnv
 from src.nn_model import AlphaChessNet
 from src.mcts import MCTSNode, MCTS
 from src.move_encoder import MoveEncoderDecoder
+from src.config_types import TestFullConfig
 
 
-def load_config(config_path: str) -> dict:
+def load_config(config_path: str) -> TestFullConfig:
     """
     Loads configuration from a YAML file.
 
@@ -20,13 +22,43 @@ def load_config(config_path: str) -> dict:
         dict: A dictionary containing the loaded configuration.
     """
     try:
+        if not os.path.exists(config_path):
+            print(f"Configuration file not found at {config_path}. Using default configuration.")
+            return {
+                "model": {"num_residual_blocks": 2, "num_filters": 128, "use_torch_compile": False},
+                "mcts": {
+                    "c_puct": 1.0,
+                    "simulations_per_move": 100,
+                    "max_depth": 10,
+                    "num_simulations": 10,
+                    "dirichlet_alpha": 0.3,
+                    "dirichlet_epsilon": 0.25,
+                    "temp_threshold": 1,
+                },
+                "checkpointing": {
+                    "checkpoint_dir": "checkpoints",
+                    "save_interval": 10,
+                    "load_checkpoint": False,
+                    "load_checkpoint_path": None,
+                    "log_interval": 1,
+                    "checkpoint_path": "checkpoints/model.pth",
+                },
+                "testing": {
+                    "use_torch_compile": False,
+                },
+            }
+
         with open(config_path, "r") as f:
-            return yaml.safe_load(f)
+            config = yaml.safe_load(f)
+            if config is None:  # Handle empty config file
+                print(f"Configuration file {config_path} is empty. Using default configuration.")
+                return load_config("")  # Recursively call with empty path to get defaults
+            return config
+    except yaml.YAMLError as e:
+        print(f"Error parsing configuration file {config_path}: {e}. Using default configuration.")
+        return load_config("")  # Recursively call with empty path to get defaults
     except FileNotFoundError:
         print(f"Error: Config file not found at {config_path}")
-        exit(1)
-    except yaml.YAMLError as e:
-        print(f"Error parsing config file: {e}")
         exit(1)
 
 
@@ -36,7 +68,7 @@ class Tester:
     It handles model loading, game simulation, and interaction with human players.
     """
 
-    def __init__(self, config: dict):
+    def __init__(self, config: TestFullConfig):
         """
         Initializes the Tester with a given configuration.
 
@@ -44,7 +76,7 @@ class Tester:
             config (dict): A dictionary containing the testing configuration,
                            including model, MCTS, and checkpointing settings.
         """
-        self.config: dict = config
+        self.config: TestFullConfig = config
         self.device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.chess_env: ChessEnv = ChessEnv()
@@ -268,7 +300,7 @@ class Tester:
         print(f"Result: {current_board.result()}")
 
 
-def _apply_cli_overrides(config: dict, args: argparse.Namespace) -> dict:
+def _apply_cli_overrides(config: TestFullConfig, args: argparse.Namespace) -> TestFullConfig:
     """
     Applies command-line arguments to override configuration values.
 

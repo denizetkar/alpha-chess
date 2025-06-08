@@ -3,7 +3,8 @@ import argparse
 import torch
 import torch.optim as optim
 import torch.nn.functional as F
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp.grad_scaler import GradScaler
+from torch.amp.autocast_mode import autocast
 import yaml
 import os
 from collections import deque
@@ -17,16 +18,17 @@ from src.chess_env import ChessEnv
 from src.nn_model import AlphaChessNet
 from src.mcts import MCTSNode, MCTS
 from src.move_encoder import MoveEncoderDecoder, MOVE_ENCODING_SIZE
+from src.config_types import TrainFullConfig
 
 
 class Trainer:
-    def __init__(self, config: dict):
+    def __init__(self, config: TrainFullConfig):
         self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.chess_env = ChessEnv()
         self.move_encoder = MoveEncoderDecoder()
-        self.model: torch.nn.Module = AlphaChessNet(  # Explicitly type as torch.nn.Module
+        self.model: torch.nn.Module = AlphaChessNet(
             num_residual_blocks=self.config["model"]["num_residual_blocks"],
             num_filters=self.config["model"]["num_filters"],
         ).to(self.device)
@@ -34,12 +36,12 @@ class Trainer:
         self.optimizer = optim.Adam(
             self.model.parameters(),
             lr=self.config["training"]["learning_rate"],
-            weight_decay=self.config["training"]["l2_regularization_coeff"],
+            weight_decay=self.config["training"]["l2_regularization"],
         )  # type: ignore
-        self.scaler = GradScaler()
+        self.scaler = GradScaler(self.device.type, enabled=self.config["training"]["use_mixed_precision"])
 
         # Compile the model if PyTorch 2.0+ is available and configured
-        if self.config["training"]["use_torch_compile"] and hasattr(torch, "compile"):
+        if self.config["model"]["use_torch_compile"] and hasattr(torch, "compile"):
             print("Compiling model with torch.compile...")
             self.model = torch.compile(self.model)  # type: ignore
 
@@ -168,9 +170,10 @@ class Trainer:
             self.model,
             self.chess_env,
             self.move_encoder,
+            device=self.device,  # Pass the device
             c_puct=self.config["mcts"]["c_puct"],
-            max_depth=self.config["mcts"]["max_depth"],  # Pass max_depth from config
-        )  # type: ignore
+            max_depth=self.config["mcts"]["max_depth"],
+        )
 
         while not current_board.is_game_over():
             mcts.run_simulations(root_node, self.config["mcts"]["simulations_per_move"])
@@ -235,7 +238,7 @@ class Trainer:
 
     def train(self):
         num_iterations = self.config["training"]["num_iterations"]
-        games_per_iteration = self.config["training"]["num_self_play_games_per_iteration"]
+        games_per_iteration = self.config["training"]["num_games_per_iteration"]
         batch_size = self.config["training"]["batch_size"]
         num_training_steps = self.config["training"]["num_training_steps"]
 
@@ -267,7 +270,7 @@ class Trainer:
                     self._perform_training_step(batch_size, iteration, num_training_steps, step)
 
                 # Save checkpoint
-                if (iteration + 1) % self.config["checkpointing"]["checkpoint_frequency"] == 0:
+                if (iteration + 1) % self.config["checkpointing"]["save_interval"] == 0:
                     self._save_checkpoint(iteration + 1)
 
         except Exception as e:
@@ -288,14 +291,17 @@ class Trainer:
 
             self.optimizer.zero_grad()
 
-            with autocast(enabled=self.config["training"]["use_mixed_precision"]):
+            with autocast(self.device.type, enabled=self.config["training"]["use_mixed_precision"]):
                 pred_policy_logits, pred_value = self.model(states_tensor)
 
                 policy_loss = -torch.sum(policies_tensor * pred_policy_logits, dim=1).mean()
                 value_loss = F.mse_loss(pred_value, values_tensor)
 
                 # L2 regularization is now handled by weight_decay in the optimizer
-                total_loss = policy_loss + value_loss
+                total_loss = (
+                    self.config["training"]["policy_loss_weight"] * policy_loss
+                    + self.config["training"]["value_loss_weight"] * value_loss
+                )
 
             self.scaler.scale(total_loss).backward()
             self.scaler.step(self.optimizer)
@@ -355,7 +361,7 @@ def main():
     training_group.add_argument(
         "--games_per_iteration",
         type=int,
-        dest="num_self_play_games_per_iteration",  # Map to config key
+        dest="num_games_per_iteration",  # Map to config key
         help="Override the number of self-play games generated per iteration from config.",
     )
     training_group.add_argument(
@@ -422,6 +428,7 @@ def main():
     checkpoint_group.add_argument(
         "--checkpoint_frequency",
         type=int,
+        dest="save_interval",  # Map to config key
         help="Override the frequency (in iterations) for saving checkpoints from config.",
     )
     checkpoint_group.add_argument(
@@ -444,14 +451,22 @@ def main():
     config = apply_cli_overrides(config, args)
 
     # Set random seeds for reproducibility
-    if "seed" in config["training"] and config["training"]["seed"] is not None:
-        seed = config["training"]["seed"]
+    if args.seed is not None:
+        seed = args.seed
         torch.manual_seed(seed)
         np.random.seed(seed)
         random.seed(seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
         print(f"Random seed set to {seed}")
+    elif config["training"]["seed"] is not None:
+        seed = config["training"]["seed"]
+        torch.manual_seed(seed)
+        np.random.seed(seed)
+        random.seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+        print(f"Random seed set to {seed} from config")
 
     try:
         # Pass the modified config to the Trainer
@@ -464,26 +479,39 @@ def main():
         sys.exit(1)  # Exit with a non-zero status code to indicate an error
 
 
-def load_config(config_path: str) -> dict:
+def load_config(config_path: str) -> TrainFullConfig:
     """Loads the configuration from a YAML file."""
     try:
         if not os.path.exists(config_path):
             print(f"Configuration file not found at {config_path}. Using default configuration.")
             # Provide a minimal default config if the file doesn't exist
             return {
-                "model": {"num_residual_blocks": 2, "num_filters": 128},
+                "model": {"num_residual_blocks": 2, "num_filters": 128, "use_torch_compile": False},
                 "training": {
                     "learning_rate": 0.001,
-                    "l2_regularization_coeff": 0.0001,
+                    "l2_regularization": 0.0001,
                     "use_torch_compile": False,
-                    "lr_scheduler": {"use_scheduler": False},
+                    "lr_scheduler": {
+                        "use_scheduler": False,
+                        "type": "cosine_annealing",
+                        "t_max": 1,
+                        "eta_min": 0.00001,
+                        "gamma": 0.9,
+                    },
                     "replay_buffer_capacity": 10000,
                     "num_iterations": 100,
-                    "num_self_play_games_per_iteration": 10,
+                    "num_games_per_iteration": 10,
                     "batch_size": 256,
                     "num_training_steps": 100,
                     "use_mixed_precision": False,
                     "seed": None,
+                    "num_epochs": 1,
+                    "momentum": 0.9,
+                    "clip_norm": 10,
+                    "value_loss_weight": 1.0,
+                    "policy_loss_weight": 1.0,
+                    "temperature": 1.0,
+                    "cpu_threads": 1,
                 },
                 "mcts": {
                     "c_puct": 1.0,
@@ -491,14 +519,19 @@ def load_config(config_path: str) -> dict:
                     "max_depth": 10,
                     "dirichlet_alpha": 0.3,
                     "dirichlet_epsilon": 0.25,
+                    "num_simulations": 10,
+                    "temp_threshold": 1,
                 },
                 "checkpointing": {
                     "checkpoint_dir": "checkpoints",
-                    "checkpoint_frequency": 10,
+                    "save_interval": 10,
                     "load_checkpoint": False,
                     "load_checkpoint_path": None,
+                    "log_interval": 1,
+                    "checkpoint_path": "checkpoints/model.pth",
                 },
                 "logging": {"tensorboard_log_dir": "runs"},
+                "device": "cpu",
             }
 
         with open(config_path, "r") as f:
@@ -512,7 +545,7 @@ def load_config(config_path: str) -> dict:
         return load_config("")  # Recursively call with empty path to get defaults
 
 
-def apply_cli_overrides(config: dict, args: argparse.Namespace) -> dict:
+def apply_cli_overrides(config: TrainFullConfig, args: argparse.Namespace) -> TrainFullConfig:
     """Applies command-line arguments to override configuration values."""
     # General
     if args.seed is not None:
@@ -523,8 +556,8 @@ def apply_cli_overrides(config: dict, args: argparse.Namespace) -> dict:
         config["training"]["learning_rate"] = args.learning_rate
     if args.num_iterations is not None:
         config["training"]["num_iterations"] = args.num_iterations
-    if args.num_self_play_games_per_iteration is not None:
-        config["training"]["num_self_play_games_per_iteration"] = args.num_self_play_games_per_iteration
+    if args.num_games_per_iteration is not None:
+        config["training"]["num_games_per_iteration"] = args.num_games_per_iteration
     if args.batch_size is not None:
         config["training"]["batch_size"] = args.batch_size
     if args.num_training_steps is not None:
@@ -534,7 +567,7 @@ def apply_cli_overrides(config: dict, args: argparse.Namespace) -> dict:
     if args.use_mixed_precision is not None:
         config["training"]["use_mixed_precision"] = args.use_mixed_precision
     if args.use_torch_compile is not None:
-        config["training"]["use_torch_compile"] = args.use_torch_compile
+        config["model"]["use_torch_compile"] = args.use_torch_compile
 
     # MCTS
     if args.simulations_per_move is not None:
@@ -552,8 +585,8 @@ def apply_cli_overrides(config: dict, args: argparse.Namespace) -> dict:
     if args.load_checkpoint_path is not None:
         config["checkpointing"]["load_checkpoint"] = True
         config["checkpointing"]["load_checkpoint_path"] = args.load_checkpoint_path
-    if args.checkpoint_frequency is not None:
-        config["checkpointing"]["checkpoint_frequency"] = args.checkpoint_frequency
+    if args.save_interval is not None:
+        config["checkpointing"]["save_interval"] = args.save_interval
     if args.checkpoint_dir is not None:
         config["checkpointing"]["checkpoint_dir"] = args.checkpoint_dir
 
