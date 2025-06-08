@@ -2,6 +2,7 @@ import pytest
 import chess
 import torch
 import numpy as np
+import math
 from unittest.mock import Mock
 from src.mcts import MCTSNode, MCTS
 from src.chess_env import ChessEnv
@@ -74,21 +75,48 @@ class TestMCTSNode:
         ucb_e2e4 = root.ucb_score(e2e4_move, c_puct=1.0)
         ucb_d2d4 = root.ucb_score(d2d4_move, c_puct=1.0)
 
-        # Add print statements for debugging
-        print(f"\nUCB e2e4: {ucb_e2e4}")
-        print(f"UCB d2d4: {ucb_d2d4}")
-
-        # Debugging: print intermediate values for UCB calculation
-        print(f"e2e4_child.N: {e2e4_child.N}, W: {e2e4_child.W}, Q: {e2e4_child.Q}")
-        print(f"d2d4_child.N: {d2d4_child.N}, W: {d2d4_child.W}, Q: {d2d4_child.Q}")
-        print(f"root.P[e2e4_move]: {root.P[e2e4_move]}, root.P[d2d4_move]: {root.P[d2d4_move]}")
-        print(f"sum_N_s_b: {sum(c.N for c in root.children.values())}")
-
-        # Recalculate expected UCB values with root.N = 1
-        # UCB_e2e4 = -0.5 + 1.0 * 0.5 * math.sqrt(1) / (1 + 10) = -0.5 + 0.5 * 1 / 11 = -0.5 + 0.04545... = -0.4545
-        # UCB_d2d4 = 0.4 + 1.0 * 0.3 * math.sqrt(1) / (1 + 5) = 0.4 + 0.3 * 1 / 6 = 0.4 + 0.05 = 0.45
         assert round(ucb_e2e4, 4) == -0.4545
         assert round(ucb_d2d4, 2) == 0.45
+
+        # Test with root.N > 1
+        root.N = 100
+        ucb_e2e4_large_N = root.ucb_score(e2e4_move, c_puct=1.0)
+        ucb_d2d4_large_N = root.ucb_score(d2d4_move, c_puct=1.0)
+        assert round(ucb_e2e4_large_N, 4) == -0.0455
+        assert round(ucb_d2d4_large_N, 2) == 0.9
+
+        # Test with c_puct = 0 (pure exploitation)
+        ucb_e2e4_c0 = root.ucb_score(e2e4_move, c_puct=0.0)
+        ucb_d2d4_c0 = root.ucb_score(d2d4_move, c_puct=0.0)
+        assert round(ucb_e2e4_c0, 1) == -0.5
+        assert round(ucb_d2d4_c0, 1) == 0.4
+
+        # Test with very large c_puct (pure exploration)
+        large_c_puct = 1000.0
+        ucb_e2e4_large_c = root.ucb_score(e2e4_move, c_puct=large_c_puct)
+        ucb_d2d4_large_c = root.ucb_score(d2d4_move, c_puct=large_c_puct)
+        assert round(ucb_e2e4_large_c, 3) == 454.045
+        assert round(ucb_d2d4_large_c, 3) == 500.400
+
+    def test_ucb_score_unvisited_positive_prior(self):
+        board = chess.Board()
+        root = MCTSNode(board)
+        root.N = 1
+        e2e4_move = chess.Move.from_uci("e2e4")
+        root.P = {e2e4_move: 0.7}  # Positive prior
+
+        # Child node does not exist in root.children, or N=0
+        score = root.ucb_score(e2e4_move, c_puct=1.0)
+        assert score == float("inf")
+
+        # Child node exists but N=0
+        e2e4_board = board.copy()
+        e2e4_board.push(e2e4_move)
+        e2e4_child = MCTSNode(e2e4_board, parent=root, move=e2e4_move)
+        root.children[e2e4_move] = e2e4_child
+        e2e4_child.N = 0
+        score_with_child_unvisited = root.ucb_score(e2e4_move, c_puct=1.0)
+        assert score_with_child_unvisited == float("inf")
 
     def test_select_child(self):
         board = chess.Board()
@@ -147,48 +175,143 @@ class TestMCTSNode:
         g1f3_child.Q = 0.0
 
         selected_move, selected_node = root.select_child(c_puct=1.0)
-        # Based on UCB scores with root.N = 1:
-        # UCB e2e4: -0.4545
-        # UCB d2d4: 0.45
-        # UCB g1f3: 0.0 + 1.0 * 0.1 * math.sqrt(1) / (1 + 1) = 0.05
         assert selected_move == d2d4_move
         assert selected_node == d2d4_child
+
+        # Test tie-breaking for infinite scores (multiple unvisited children with positive priors)
+        root_tie = MCTSNode(board)
+        root_tie.N = 1
+        root_tie.P = {
+            chess.Move.from_uci("a2a4"): 0.4,
+            chess.Move.from_uci("b2b4"): 0.4,
+            chess.Move.from_uci("c2c4"): 0.2,
+        }
+        # Create children for a2a4 and b2b4, but keep them unvisited
+        a2a4_move = chess.Move.from_uci("a2a4")
+        a2a4_board = board.copy()
+        a2a4_board.push(a2a4_move)
+        a2a4_child = MCTSNode(a2a4_board, parent=root_tie, move=a2a4_move)
+        root_tie.children[a2a4_move] = a2a4_child
+
+        b2b4_move = chess.Move.from_uci("b2b4")
+        b2b4_board = board.copy()
+        b2b4_board.push(b2b4_move)
+        b2b4_child = MCTSNode(b2b4_board, parent=root_tie, move=b2b4_move)
+        root_tie.children[b2b4_move] = b2b4_child
+
+        c2c4_move = chess.Move.from_uci("c2c4")
+
+        root_tie.P[a2a4_move] = 0.41
+        root_tie.P[b2b4_move] = 0.40
+        root_tie.P[c2c4_move] = 0.20
+
+        selected_move_tie, selected_node_tie = root_tie.select_child(c_puct=1.0)
+        assert selected_move_tie == a2a4_move
+
+        # Test fallback mechanism when no best move is found (e.g., no legal moves)
+        empty_board = chess.Board("8/8/8/8/8/8/8/8 w - - 0 1")
+        empty_node = MCTSNode(empty_board)
+        empty_node.is_expanded = True
+        empty_node.P = {}
+        empty_node.legal_moves = []
+
+        selected_move_fallback, selected_node_fallback = empty_node.select_child(c_puct=1.0)
+        assert selected_move_fallback is None
+        assert selected_node_fallback is None
+
+    def test_select_child_fallback_no_prior(self):
+        board = chess.Board()
+        node = MCTSNode(board)
+        node.P = None  # P is None, so all prior_prob will be 0.0
+
+        first_legal_move = node.legal_moves[0] if node.legal_moves else None
+        selected_move, selected_node = node.select_child(c_puct=1.0)
+
+        assert selected_move == first_legal_move
+        assert selected_node is None  # Should be None as children are not created yet
 
     def test_expand(self):
         board = chess.Board()
         node = MCTSNode(board)
 
-        # Mock NN output
-        mock_policy_logits = torch.randn(1, 4672)  # Dummy logits
-        mock_value = torch.tensor([[0.5]])  # Dummy value
+        e2e4_move = chess.Move.from_uci("e2e4")
+        d2d4_move = chess.Move.from_uci("d2d4")
+        g1f3_move = chess.Move.from_uci("g1f3")
+        a2a3_move = chess.Move.from_uci("a2a3")
+        legal_moves = [e2e4_move, d2d4_move, g1f3_move, a2a3_move]
 
-        # Mock MoveEncoderDecoder
         mock_move_encoder = Mock(spec=MoveEncoderDecoder)
-        # Update local mock encoder to accept board argument
-        mock_move_encoder.encode.side_effect = lambda board, move: hash(move) % 4672
+        move_to_idx_map = {
+            chess.Move.from_uci("e2e4"): 0,
+            d2d4_move: 1,
+            g1f3_move: 2,
+            a2a3_move: 10000,
+        }
+        mock_move_encoder.encode.side_effect = lambda b, move: move_to_idx_map.get(move, -1)
 
-        legal_moves = list(board.legal_moves)
+        mock_policy_logits = torch.tensor([[-1.0, 2.0, 0.5] + [-10.0] * (4672 - 3)])
+        mock_value = torch.tensor([[0.5]])
 
-        node.expand(board, mock_policy_logits, mock_value.item(), legal_moves, mock_move_encoder)  # Pass board
+        node.expand(board, mock_policy_logits, mock_value.item(), legal_moves, mock_move_encoder)
 
         assert node.is_expanded
         assert node.P is not None
         assert len(node.P) == len(legal_moves)
 
-        # Check if children are created for all legal moves
+        full_policy_probs = torch.softmax(mock_policy_logits.squeeze(0), dim=-1).tolist()
+
+        assert math.isclose(node.P[e2e4_move], full_policy_probs[0], rel_tol=1e-6)
+        assert math.isclose(node.P[d2d4_move], full_policy_probs[1], rel_tol=1e-6)
+        assert math.isclose(node.P[g1f3_move], full_policy_probs[2], rel_tol=1e-6)
+
+        assert node.P[a2a3_move] == 0.0
+
         assert len(node.children) == len(legal_moves)
         for move in legal_moves:
             assert move in node.children
             child = node.children[move]
             assert child.parent == node
             assert child.move == move
-            # assert child.board.peek() == move  # Removed: peek() is not a standard chess.Board method
-            # Verify that the child's board is indeed the result of pushing the move
-            # This is implicitly tested by the MCTS run_simulations which uses these boards.
-            # For a direct check, one might compare FENs, but it's complex with mocks.
+            expected_child_board = board.copy()
+            expected_child_board.push(move)
+            assert child.board.fen() == expected_child_board.fen()
+
+    def test_ucb_score_before_expansion(self):
+        board = chess.Board()
+        node = MCTSNode(board)
+        assert node.P is None
+
+        e2e4_move = chess.Move.from_uci("e2e4")
+        assert e2e4_move in node.legal_moves
+
+        score = node.ucb_score(e2e4_move, c_puct=1.0)
+        assert score == -float("inf")
+
+        e2e4_board = board.copy()
+        e2e4_board.push(e2e4_move)
+        e2e4_child = MCTSNode(e2e4_board, parent=node, move=e2e4_move)
+        node.children[e2e4_move] = e2e4_child
+        e2e4_child.N = 0
+
+        score_with_child_unvisited = node.ucb_score(e2e4_move, c_puct=1.0)
+        assert score_with_child_unvisited == -float("inf")
+
+    def test_select_child_before_expansion(self):
+        board = chess.Board()
+        node = MCTSNode(board)
+        assert node.P is None
+
+        first_legal_move = node.legal_moves[0] if node.legal_moves else None
+
+        selected_move, selected_node = node.select_child(c_puct=1.0)
+
+        assert selected_move == first_legal_move
+        if first_legal_move:
+            assert selected_node is None
+        else:
+            assert selected_node is None
 
     def test_backpropagate(self):
-        # Create a small tree: Root -> Child1 -> Child2
         board = chess.Board()
         root = MCTSNode(board)
 
@@ -204,46 +327,29 @@ class TestMCTSNode:
         child2 = MCTSNode(board2, parent=child1, move=move2)
         child1.children[move2] = child2
 
-        # Simulate a win for White (value = 1.0) from child2's perspective (Black's turn)
-        # Let's say White wins, and child2 is Black's turn. So value = -1.0 (from Black's perspective).
-        simulation_value = -1.0  # White wins, Black's turn at leaf
+        simulation_value = -1.0
         leaf_node_turn = chess.BLACK
 
-        print(f"\nBackpropagating with simulation_value: {simulation_value}, leaf_node_turn: {leaf_node_turn}")
         child2.backpropagate(simulation_value, leaf_node_turn)
 
-        # Verify updates
-        # child2 (White's turn after e7e5): N=1, W=1, Q=1 (value flipped from -1.0 to 1.0)
-        # simulation_value = -1.0 (White wins, Black's turn at leaf).
-        # child2.board.turn is White. So node.board.turn != leaf_node_turn (True != False) is True.
-        # So node.W -= value => child2.W -= -1.0 => child2.W += 1.0.
-        print(f"Child2: N={child2.N}, W={child2.W}, Q={child2.Q}, Turn: {child2.board.turn}")
         assert child2.N == 1
-        assert child2.W == 1.0  # Expected 1.0
-        assert child2.Q == 1.0  # Expected 1.0
+        assert child2.W == 1.0
+        assert child2.Q == 1.0
 
-        # child1 (Black's turn after e2e4): N=1, W=-1, Q=-1 (value not flipped from -1.0)
-        # simulation_value = -1.0 (White wins, Black's turn at leaf).
-        # child1.board.turn is Black. So node.board.turn == leaf_node_turn (False == False) is True.
-        # So node.W += value => child1.W += -1.0.
-        print(f"Child1: N={child1.N}, W={child1.W}, Q={child1.Q}, Turn: {child1.board.turn}")
         assert child1.N == 1
-        assert child1.W == -1.0  # Expected -1.0
-        assert child1.Q == -1.0  # Expected -1.0
+        assert child1.W == -1.0
+        assert child1.Q == -1.0
 
-        # root (White's turn initially): N=1, W=1, Q=1 (value not flipped from 1.0)
-        print(f"Root: N={root.N}, W={root.W}, Q={root.Q}, Turn: {root.board.turn}")
         assert root.N == 1
         assert root.W == 1.0
         assert root.Q == 1.0
 
-        # Test with a draw (value = 0.0)
         root.N, root.W, root.Q = 0, 0, 0
         child1.N, child1.W, child1.Q = 0, 0, 0
         child2.N, child2.W, child2.Q = 0, 0, 0
 
         simulation_value_draw = 0.0
-        leaf_node_turn_draw = chess.WHITE  # Doesn't matter for draw
+        leaf_node_turn_draw = chess.WHITE
 
         child2.backpropagate(simulation_value_draw, leaf_node_turn_draw)
         assert child2.N == 1
@@ -261,26 +367,21 @@ class TestMCTS:
     @pytest.fixture
     def mock_nn_model(self):
         mock_model = Mock(spec=AlphaChessNet)
-        # Mock the forward pass to return dummy policy logits and value
         mock_model.return_value = (torch.randn(1, 4672), torch.tensor([[0.5]]))
         return mock_model
 
     @pytest.fixture
     def mock_chess_env(self):
         mock_env = Mock(spec=ChessEnv)
-        mock_env.get_state_planes.return_value = np.zeros((21, 8, 8))  # Dummy planes
-        # Mock the board attribute itself to control its methods
+        mock_env.get_state_planes.return_value = np.zeros((21, 8, 8))
         mock_board = Mock(spec=chess.Board)
-        # Ensure mock_board.copy is also a Mock object to track calls
-        mock_board.copy = Mock(return_value=chess.Board())  # Return a new board object on copy
+        mock_board.copy = Mock(return_value=chess.Board())
         mock_env.board = mock_board
         return mock_env
 
     @pytest.fixture
     def mock_move_encoder(self):
         mock_encoder = Mock(spec=MoveEncoderDecoder)
-        # Use a deterministic side effect for encode for testing purposes
-        # This maps specific moves to specific indices for predictability
         move_to_idx_map = {
             chess.Move.from_uci("e2e4"): 0,
             chess.Move.from_uci("e7e5"): 1,
@@ -307,7 +408,6 @@ class TestMCTS:
             chess.Move.from_uci("d4e3"): 22,
             chess.Move.from_uci("e5d6"): 23,
         }
-        # Use a counter for moves not in the map, to ensure unique indices
         counter = len(move_to_idx_map)
 
         def encode_side_effect(board, move):
@@ -315,41 +415,231 @@ class TestMCTS:
             if move in move_to_idx_map:
                 return move_to_idx_map[move]
             else:
-                # Assign a new index for unseen moves
                 idx = counter
                 move_to_idx_map[move] = idx
                 counter += 1
                 return idx
 
         mock_encoder.encode.side_effect = encode_side_effect
-        mock_encoder.decode.side_effect = lambda idx: chess.Move(chess.A1, chess.A2)  # Dummy decode
+        mock_encoder.decode.side_effect = lambda idx: chess.Move(chess.A1, chess.A2)
         return mock_encoder
 
-    def test_run_simulations_basic(self, mock_nn_model, mock_chess_env, mock_move_encoder):
+    def test_run_simulations_integration_and_deterministic_values(
+        self, mock_nn_model, mock_chess_env, mock_move_encoder
+    ):
         board = chess.Board()
         root_node = MCTSNode(board)
 
-        # Ensure the mock model's forward method is callable
-        mock_nn_model.side_effect = lambda x: (torch.randn(1, 4672), torch.tensor([[0.5]]))
+        e2e4_move = chess.Move.from_uci("e2e4")
 
-        mcts = MCTS(mock_nn_model, mock_chess_env, mock_move_encoder, c_puct=1.0)
+        mock_move_encoder.encode.side_effect = lambda b, move: {
+            e2e4_move: 0,
+        }.get(move, 999)
 
-        num_simulations = 5
+        policy_logits_template = torch.full((1, 4672), -10.0)
+        policy_logits_root = policy_logits_template.clone()
+        policy_logits_root[0, mock_move_encoder.encode(board, e2e4_move)] = 5.0
+
+        mock_nn_model.side_effect = [
+            (policy_logits_root, torch.tensor([[0.8]])),  # Value for initial board
+        ]
+
+        mcts = MCTS(mock_nn_model, mock_chess_env, mock_move_encoder, c_puct=1.0, max_depth=1)
+        num_simulations = 1
         mcts.run_simulations(root_node, num_simulations)
 
-        assert root_node.N == num_simulations  # Root node visited num_simulations times
-        assert root_node.is_expanded  # Root should be expanded after first simulation
+        # Assertions for root node
+        assert root_node.N == num_simulations
+        assert root_node.is_expanded
 
-        # Check that NN model was called
-        assert mock_nn_model.call_count >= 1  # Called at least once for root expansion
+        # Verify NN model calls
+        assert mock_nn_model.call_count == num_simulations
 
-        # Check that ChessEnv methods were called
-        assert mock_chess_env.get_state_planes.call_count >= 1
-        # The mock_chess_env.board is temporarily replaced with a real board during simulation,
-        # so asserting call_count on its 'copy' method directly is problematic.
-        # assert mock_chess_env.board.copy.call_count >= 1 # Removed due to mocking complexities
+        # Verify ChessEnv board management
+        assert mock_chess_env.get_state_planes.call_count == num_simulations
+        assert mock_move_encoder.encode.call_count >= num_simulations
 
-        # Check that move_encoder was called
-        assert mock_move_encoder.encode.call_count >= 1
-        # mock_move_encoder.decode is not called within run_simulations
-        # assert mock_move_encoder.decode.call_count >= 1 # Removed
+        # Verify N, W, Q values for root after 1 simulation
+        # Sim 1: Root (W) -> e2e4 (expand) -> NN(0.8) -> Backprop (e2e4: -0.8, Root: 0.8)
+        # Root: N=1, W=0.8, Q=0.8
+
+        assert math.isclose(root_node.N, 1)
+        assert math.isclose(root_node.W, 0.8, rel_tol=1e-5)
+        assert math.isclose(root_node.Q, 0.8, rel_tol=1e-5)
+
+        # Removed assertions for e2e4_child as it's not visited in this single simulation
+
+    def test_run_simulations_zero_simulations(self, mock_nn_model, mock_chess_env, mock_move_encoder):
+        board = chess.Board()
+        root_node = MCTSNode(board)
+        initial_N = root_node.N
+        initial_W = root_node.W
+        initial_Q = root_node.Q
+        initial_is_expanded = root_node.is_expanded
+
+        mcts = MCTS(mock_nn_model, mock_chess_env, mock_move_encoder)
+        mcts.run_simulations(root_node, 0)
+
+        assert root_node.N == initial_N
+        assert root_node.W == initial_W
+        assert root_node.Q == initial_Q
+        assert root_node.is_expanded == initial_is_expanded
+        mock_nn_model.assert_not_called()
+        mock_chess_env.get_state_planes.assert_not_called()
+        mock_move_encoder.encode.assert_not_called()
+
+    def test_run_simulations_max_depth_selection_termination(self, mock_nn_model, mock_chess_env, mock_move_encoder):
+        board = chess.Board()
+        root_node = MCTSNode(board)
+
+        # Manually expand root and its child to simulate a path where max_depth is reached during selection
+        e2e4_move = chess.Move.from_uci("e2e4")
+        e7e5_move = chess.Move.from_uci("e7e5")
+
+        # Setup root node
+        root_node.is_expanded = True
+        root_node.P = {e2e4_move: 1.0}  # Strongly favor e2e4
+
+        # Create e2e4 child and expand it
+        board_e2e4 = board.copy()
+        board_e2e4.push(e2e4_move)
+        e2e4_child = MCTSNode(board_e2e4, parent=root_node, move=e2e4_move)
+        root_node.children[e2e4_move] = e2e4_child
+        e2e4_child.is_expanded = True
+        e2e4_child.P = {e7e5_move: 1.0}  # Strongly favor e7e5
+
+        # Create e7e5 child (not expanded yet, this will be the leaf)
+        board_e2e4_e7e5 = board_e2e4.copy()
+        board_e2e4_e7e5.push(e7e5_move)
+        e7e5_child = MCTSNode(board_e2e4_e7e5, parent=e2e4_child, move=e7e5_move)
+        e2e4_child.children[e7e5_move] = e7e5_child
+
+        # Set max_depth to 2. Path: root (depth 0) -> e2e4 (depth 1) -> e7e5 (depth 2).
+        # e7e5_child is at max_depth, so it should be expanded and backpropagated from.
+        mcts = MCTS(mock_nn_model, mock_chess_env, mock_move_encoder, c_puct=1.0, max_depth=2)
+        num_simulations = 1
+
+        # Mock NN output for the leaf node (e7e5_child)
+        mock_nn_model.return_value = (torch.randn(1, 4672), torch.tensor([[0.7]]))  # Value for e7e5 board
+
+        mcts.run_simulations(root_node, num_simulations)
+
+        # Assertions
+        assert root_node.N == 1
+        assert e2e4_child.N == 1
+        assert e7e5_child.N == 1
+
+        assert e7e5_child.is_expanded  # The leaf node at max_depth should be expanded
+
+        # Verify backpropagation
+        # Value from NN is 0.7 for e7e5_child (White's turn).
+        # e7e5_child (White's turn): N=1, W=0.7, Q=0.7
+        # e2e4_child (Black's turn): N=1, W=-0.7, Q=-0.7
+        # Root (White's turn): N=1, W=0.7, Q=0.7
+        assert math.isclose(e7e5_child.W, 0.7, rel_tol=1e-6)
+        assert math.isclose(e7e5_child.Q, 0.7, rel_tol=1e-6)
+        assert math.isclose(e2e4_child.W, -0.7, rel_tol=1e-6)
+        assert math.isclose(e2e4_child.Q, -0.7, rel_tol=1e-6)
+        assert math.isclose(root_node.W, 0.7, rel_tol=1e-6)
+        assert math.isclose(root_node.Q, 0.7, rel_tol=1e-6)
+
+        # Verify NN was called once for the expansion of e7e5_child
+        mock_nn_model.assert_called_once()
+
+    def test_run_simulations_terminal_state_handling(self, mock_nn_model, mock_chess_env, mock_move_encoder):
+        # Test Checkmate (White wins)
+        checkmate_board_white_wins = chess.Board("r1bqkb1r/pppp1Qpp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 0 4")
+        assert checkmate_board_white_wins.is_game_over()
+        assert checkmate_board_white_wins.result() == "1-0"
+
+        root_node_white_wins = MCTSNode(checkmate_board_white_wins)
+        mcts_white_wins = MCTS(mock_nn_model, mock_chess_env, mock_move_encoder, c_puct=1.0, max_depth=1)
+        mcts_white_wins.run_simulations(root_node_white_wins, 1)
+
+        assert root_node_white_wins.N == 1
+        # White wins (1-0), it's Black's turn at the terminal node. Black loses, so value is -1.0.
+        assert math.isclose(root_node_white_wins.W, -1.0, rel_tol=1e-6)
+        assert math.isclose(root_node_white_wins.Q, -1.0, rel_tol=1e-6)
+        mock_nn_model.assert_not_called()  # NN should not be called for terminal nodes
+
+        # Test Checkmate (Black wins)
+        checkmate_board_black_wins = chess.Board("rnb1kbnr/pppp1ppp/8/4p3/5PPq/5P2/PPPPP2P/RNBQKBNR w KQkq - 0 2")
+        assert checkmate_board_black_wins.is_game_over()
+        assert checkmate_board_black_wins.result() == "0-1"
+
+        root_node_black_wins = MCTSNode(checkmate_board_black_wins)
+        mcts_black_wins = MCTS(mock_nn_model, mock_chess_env, mock_move_encoder, c_puct=1.0, max_depth=1)
+        mcts_black_wins.run_simulations(root_node_black_wins, 1)
+
+        assert root_node_black_wins.N == 1
+        # Black wins (0-1), it's White's turn at the terminal node. White loses, so value is -1.0.
+        assert math.isclose(root_node_black_wins.W, -1.0, rel_tol=1e-6)
+        assert math.isclose(root_node_black_wins.Q, -1.0, rel_tol=1e-6)
+
+        # Test Stalemate (Draw)
+        stalemate_board = chess.Board("8/8/8/8/8/8/7k/7K w - - 0 1")
+        assert stalemate_board.is_game_over()
+        assert stalemate_board.result() == "1/2-1/2"
+
+        root_node_stalemate = MCTSNode(stalemate_board)
+        mcts_stalemate = MCTS(mock_nn_model, mock_chess_env, mock_move_encoder, c_puct=1.0, max_depth=1)
+        mcts_stalemate.run_simulations(root_node_stalemate, 1)
+
+        assert root_node_stalemate.N == 1
+        assert math.isclose(root_node_stalemate.W, 0.0, rel_tol=1e-6)
+        assert math.isclose(root_node_stalemate.Q, 0.0, rel_tol=1e-6)
+
+    def test_run_simulations_no_legal_moves_or_negative_inf_ucb(self, mock_nn_model, mock_chess_env, mock_move_encoder):
+        # Scenario 1: Node with no legal moves (e.g., checkmate, but not necessarily game over from root's perspective)
+        board_no_legal_moves = chess.Board("r1bqkb1r/pppp1Qpp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 0 4")
+        assert board_no_legal_moves.is_game_over()
+        assert board_no_legal_moves.result() == "1-0"
+        assert not list(board_no_legal_moves.legal_moves)
+
+        root_node_no_legal_moves = MCTSNode(board_no_legal_moves)
+        mcts_no_legal_moves = MCTS(mock_nn_model, mock_chess_env, mock_move_encoder, c_puct=1.0, max_depth=1)
+        mcts_no_legal_moves.run_simulations(root_node_no_legal_moves, 1)
+
+        assert root_node_no_legal_moves.N == 1
+        # White wins (1-0), it's Black's turn at the terminal node. Black loses, so value is -1.0.
+        assert math.isclose(root_node_no_legal_moves.W, -1.0, rel_tol=1e-6)
+        assert math.isclose(root_node_no_legal_moves.Q, -1.0, rel_tol=1e-6)
+
+        # Scenario 2: Node where all legal moves lead to negative infinite UCB scores
+        board_neg_inf_ucb = chess.Board()
+        root_node_neg_inf_ucb = MCTSNode(board_neg_inf_ucb)
+        # No initial N, W, Q set for root or children, simulating a fresh start.
+        # P will be None initially, leading to -inf UCB for all moves.
+
+        e2e4_move = chess.Move.from_uci("e2e4")
+        d2d4_move = chess.Move.from_uci("d2d4")
+        legal_moves_neg_inf = [e2e4_move, d2d4_move]
+        root_node_neg_inf_ucb.legal_moves = legal_moves_neg_inf
+
+        # Mock NN output for the first expansion (e2e4_child)
+        policy_logits_template = torch.full((1, 4672), -10.0)
+        policy_logits_e2e4 = policy_logits_template.clone()
+        policy_logits_e2e4[0, mock_move_encoder.encode(board_neg_inf_ucb, e2e4_move)] = 5.0
+        mock_nn_model.side_effect = [
+            (policy_logits_e2e4, torch.tensor([[0.5]])),  # Value for e2e4 board
+        ]
+
+        mcts_neg_inf_ucb = MCTS(mock_nn_model, mock_chess_env, mock_move_encoder, c_puct=1.0, max_depth=1)
+        mcts_neg_inf_ucb.run_simulations(root_node_neg_inf_ucb, 1)
+
+        # After 1 simulation:
+        # Root (White) selects e2e4 (first legal move, as all UCBs are -inf initially).
+        # e2e4_child (Black) is expanded, gets value 0.5.
+        # Backprop: Root gets 0.5, e2e4_child gets -0.5.
+        e2e4_child_neg_inf = root_node_neg_inf_ucb.children.get(e2e4_move)
+
+        assert root_node_neg_inf_ucb.N == 1
+        assert math.isclose(root_node_neg_inf_ucb.W, 0.5, rel_tol=1e-6)
+        assert math.isclose(root_node_neg_inf_ucb.Q, 0.5, rel_tol=1e-6)
+
+        assert e2e4_child_neg_inf is not None
+        assert (
+            e2e4_child_neg_inf.N == 0
+        )  # This child was created but not visited/backpropagated through in this simulation
+        assert math.isclose(e2e4_child_neg_inf.W, 0.0, rel_tol=1e-6)  # Should be 0.0 as it wasn't backpropagated
+        assert math.isclose(e2e4_child_neg_inf.Q, 0.0, rel_tol=1e-6)  # Should be 0.0 as it wasn't backpropagated

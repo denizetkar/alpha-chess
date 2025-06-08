@@ -22,22 +22,23 @@ class MoveEncoderDecoder:
         self.move_types_map: Dict[Tuple[int, int, Optional[int]], int] = {}
         self.idx_to_move_type: List[Tuple[int, int, Optional[int]]] = []
 
-        # 1. Sliding moves (Queen, Rook, Bishop) - 56 types
-        # Directions: N, NE, E, SE, S, SW, W, NW
         sliding_directions = [(0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1)]
+
+        # 1. Single-step sliding moves (for King and step-1 Queen/Rook/Bishop) - 8 types
         for dr, dc in sliding_directions:
-            for step in range(1, 8):
+            self.idx_to_move_type.append((dr, dc, None))  # step = 1
+
+        # 2. Multi-step sliding moves (for Queen, Rook, Bishop) - 48 types (8 directions * 6 steps)
+        for dr, dc in sliding_directions:
+            for step in range(2, 8):  # Start from step 2
                 self.idx_to_move_type.append((dr * step, dc * step, None))
 
-        # 2. Knight moves - 8 types
+        # 3. Knight moves - 8 types
         knight_deltas = [(1, 2), (2, 1), (2, -1), (1, -2), (-1, -2), (-2, -1), (-2, 1), (-1, 2)]
         for dr, dc in knight_deltas:
             self.idx_to_move_type.append((dr, dc, None))
 
-        # 3. Underpromotions - 9 types
-        # For white: (1, 0, N), (1, 0, B), (1, 0, R) - straight promotion
-        #            (1, -1, N), (1, -1, B), (1, -1, R) - diagonal left promotion
-        #            (1, 1, N), (1, 1, B), (1, 1, R) - diagonal right promotion
+        # 4. Underpromotions - 9 types
         promotion_pieces = [chess.KNIGHT, chess.BISHOP, chess.ROOK]
         promotion_deltas = [(1, 0), (1, -1), (1, 1)]  # Straight, diag-left, diag-right (for white)
 
@@ -128,16 +129,15 @@ class MoveEncoderDecoder:
                 if move_type_idx == -1:
                     raise ValueError(f"Knight move {move.uci()} not found in defined knight moves.")
             elif piece.piece_type == chess.KING:
-                # King moves are 1-step sliding moves
-                # Find index in sliding_directions (indices 0-7, step 1)
-                # This corresponds to the first 8 entries in self.idx_to_move_type
-                # which are (dr*1, dc*1, None) for step=1
-                for i, (sdr, sdc, _) in enumerate(self.idx_to_move_type[:8]):  # First 8 are step 1 sliding
-                    if dr == sdr and dc == sdc:
-                        move_type_idx = i
-                        break
-                if move_type_idx == -1:
-                    raise ValueError(f"King move {move.uci()} not found in defined sliding moves (step 1).")
+                king_move_tuple = (dr, dc, None)
+                if king_move_tuple in self.move_types_map:
+                    idx = self.move_types_map[king_move_tuple]
+                    if 0 <= idx < 8:  # Ensure it's one of the 1-step sliding moves
+                        move_type_idx = idx
+                    else:
+                        raise ValueError(f"King move {move.uci()} mapped to incorrect move type index {idx}.")
+                else:
+                    raise ValueError(f"King move {move.uci()} not found in defined single-step moves.")
             else:  # Queen, Rook, Bishop, Pawn (non-promotion), or Queen promotion
                 # Sliding moves (including pawn pushes/captures that fit a sliding pattern)
                 # Determine step for sliding moves
