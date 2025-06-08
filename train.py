@@ -14,7 +14,7 @@ from torch.utils.tensorboard import SummaryWriter
 from src.chess_env import ChessEnv
 from src.nn_model import AlphaChessNet
 from src.mcts import MCTSNode, MCTS
-from src.move_encoder import MoveEncoderDecoder
+from src.move_encoder import MoveEncoderDecoder, MOVE_ENCODING_SIZE
 
 
 class Trainer:
@@ -24,7 +24,7 @@ class Trainer:
 
         self.chess_env = ChessEnv()
         self.move_encoder = MoveEncoderDecoder()
-        self.model = AlphaChessNet(
+        self.model: torch.nn.Module = AlphaChessNet(  # Explicitly type as torch.nn.Module
             num_residual_blocks=self.config["model"]["num_residual_blocks"],
             num_filters=self.config["model"]["num_filters"],
         ).to(self.device)
@@ -106,7 +106,9 @@ class Trainer:
             mcts.run_simulations(root_node, self.config["mcts"]["simulations_per_move"])
 
             chosen_move = None
-            policy_target = np.ones(4672) / 4672.0  # Initialize policy_target to uniform distribution
+            policy_target = (
+                np.ones(MOVE_ENCODING_SIZE) / MOVE_ENCODING_SIZE
+            )  # Initialize policy_target to uniform distribution
 
             if root_node.N > 0:
                 # Add Dirichlet noise to the root node's prior probabilities for exploration
@@ -118,11 +120,11 @@ class Trainer:
 
                 # Get the policy probabilities from the root node (P values)
                 # Ensure all legal moves have a prior probability
-                prior_probs = np.zeros(4672)
+                prior_probs = np.zeros(MOVE_ENCODING_SIZE)
                 legal_moves_indices = []
                 for move in root_node.legal_moves:
                     move_idx = self.move_encoder.encode(current_board, move)
-                    if move_idx < 4672:
+                    if move_idx < MOVE_ENCODING_SIZE:
                         prior_probs[move_idx] = root_node.P.get(move, 0.0) if root_node.P is not None else 0.0
                         legal_moves_indices.append(move_idx)
 
@@ -146,10 +148,10 @@ class Trainer:
                     pass
 
                 # Collect visit counts for legal moves to form the policy target
-                temp_policy_target = np.zeros(4672)
+                temp_policy_target = np.zeros(MOVE_ENCODING_SIZE)
                 for move, child_node in root_node.children.items():
                     move_idx = self.move_encoder.encode(current_board, move)
-                    if move_idx < 4672:
+                    if move_idx < MOVE_ENCODING_SIZE:
                         temp_policy_target[move_idx] = child_node.N
 
                 sum_visits = np.sum(temp_policy_target)
@@ -166,7 +168,7 @@ class Trainer:
                     # If all probabilities are zero, fall back to uniform over legal moves
                     legal_moves_list = list(current_board.legal_moves)
                     if legal_moves_list:
-                        policy_target = np.zeros(4672)
+                        policy_target = np.zeros(MOVE_ENCODING_SIZE)
                         for move in legal_moves_list:
                             move_idx = self.move_encoder.encode(current_board, move)
                             policy_target[move_idx] = 1.0 / len(legal_moves_list)

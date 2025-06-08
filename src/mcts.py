@@ -4,8 +4,10 @@ import torch
 from typing import Dict, Optional, Tuple
 
 from .chess_env import ChessEnv
-from .nn_model import AlphaChessNet
 from .move_encoder import MoveEncoderDecoder
+
+# AlphaChessNet is only used for type hinting in MCTS, but MCTS now accepts torch.nn.Module
+# from .nn_model import AlphaChessNet
 
 
 class MCTSNode:
@@ -35,17 +37,9 @@ class MCTSNode:
         prior_prob = self.P.get(child_move, 0.0) if self.P is not None else 0.0
         sum_N_s_b = self.N  # Corrected: N(s) is the visit count of the parent node itself
 
-        # Debugging prints for UCB score calculation
-        # print(
-        #     f"  UCB Calc: move={child_move.uci()}, child_N={child_node.N}, "
-        #     f"child_W={child_node.W}, child_Q={child_node.Q}"
-        # )
-        # print(f"  UCB Calc: root_turn={self.board.turn}, child_turn={child_node.board.turn}, q_value_flipped={q_value}")
-        # print(f"  UCB Calc: prior_prob={prior_prob}, sum_N_s_b (parent N)={sum_N_s_b}, c_puct={c_puct}")
-
-        exploration_term = (c_puct * prior_prob * math.sqrt(sum_N_s_b)) / (1 + child_node.N)
+        c_prior_prod = c_puct * prior_prob
+        exploration_term = c_prior_prod * math.sqrt(sum_N_s_b) / (1 + child_node.N)
         ucb = q_value + exploration_term
-        # print(f"  UCB Calc: final_ucb={ucb}")
         return ucb
 
     def select_child(self, c_puct: float) -> Tuple[Optional[chess.Move], Optional["MCTSNode"]]:
@@ -115,7 +109,7 @@ class MCTSNode:
 class MCTS:
     def __init__(
         self,
-        model: AlphaChessNet,
+        model: torch.nn.Module,  # Changed type hint to torch.nn.Module
         chess_env: ChessEnv,
         move_encoder: MoveEncoderDecoder,
         c_puct: float = 1.0,

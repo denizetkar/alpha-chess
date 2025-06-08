@@ -1,6 +1,8 @@
 import chess
 from typing import List, Dict, Optional, Tuple
 
+MOVE_ENCODING_SIZE = 64 * 73  # 4672 total possible moves
+
 
 class MoveEncoderDecoder:
     """
@@ -13,8 +15,8 @@ class MoveEncoderDecoder:
 
     def __init__(self):
         self.move_to_idx: Dict[chess.Move, int] = {}  # Populated dynamically in encode
-        self.idx_to_move: List[Optional[chess.Move]] = [None] * (64 * 73)
-        self.total_actions = 64 * 73
+        self.idx_to_move: List[Optional[chess.Move]] = [None] * MOVE_ENCODING_SIZE
+        self.total_actions = MOVE_ENCODING_SIZE
 
         # Define the 73 move types (delta_row, delta_col, promotion_piece_type)
         self.move_types_map: Dict[Tuple[int, int, Optional[int]], int] = {}

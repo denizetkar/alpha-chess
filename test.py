@@ -16,7 +16,7 @@ class Tester:
 
         self.chess_env = ChessEnv()
         self.move_encoder = MoveEncoderDecoder()
-        self.model = AlphaChessNet(
+        self.model: torch.nn.Module = AlphaChessNet(  # Explicitly type as torch.nn.Module
             num_residual_blocks=self.config["model"]["num_residual_blocks"],
             num_filters=self.config["model"]["num_filters"],
         ).to(self.device)
@@ -41,7 +41,12 @@ class Tester:
     def _play_game_with_agent(self, agent_color: chess.Color):
         self.chess_env.reset()
         current_board = self.chess_env.board.copy()
-        mcts = MCTS(self.model, self.chess_env, self.move_encoder, c_puct=self.config["mcts"]["c_puct"])  # type: ignore
+        mcts = MCTS(
+            self.model,
+            self.chess_env,
+            self.move_encoder,
+            c_puct=self.config["mcts"]["c_puct"],
+        )  # type: ignore
 
         game_moves = []
         while not current_board.is_game_over():
@@ -96,7 +101,12 @@ class Tester:
             self.chess_env.reset()
             current_board = self.chess_env.board.copy()
             root_node = MCTSNode(current_board)
-            mcts = MCTS(self.model, self.chess_env, self.move_encoder, c_puct=self.config["mcts"]["c_puct"])  # type: ignore
+            mcts = MCTS(
+                self.model,
+                self.chess_env,
+                self.move_encoder,
+                c_puct=self.config["mcts"]["c_puct"],
+            )  # type: ignore
 
             while not current_board.is_game_over():
                 mcts.run_simulations(root_node, self.config["mcts"]["simulations_per_move"])
@@ -140,7 +150,12 @@ class Tester:
 
         self.chess_env.reset()
         current_board = self.chess_env.board.copy()
-        mcts = MCTS(self.model, self.chess_env, self.move_encoder, c_puct=self.config["mcts"]["c_puct"])  # type: ignore
+        mcts = MCTS(
+            self.model,
+            self.chess_env,
+            self.move_encoder,
+            c_puct=self.config["mcts"]["c_puct"],
+        )  # type: ignore
 
         while not current_board.is_game_over():
             print("\n" + str(current_board))
