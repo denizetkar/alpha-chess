@@ -31,6 +31,6 @@ This document outlines the key architectural and design decisions made for the A
   - **En Passant Target Square:** A plane indicating the square where an en passant capture is possible.
   - **Halfmove Clock:** A plane representing the number of halfmoves since the last capture or pawn advance, normalized to a value between 0 and 1.
   - **Fullmove Number:** A plane indicating the current fullmove number, normalized to a value between 0 and 1.
-  - **Move History (Optional but Recommended):** To capture temporal information and handle situations like threefold repetition, a few previous board states (e.g., the last 8 half-moves) will be stacked as additional input planes. This helps the network understand the context of the current position.
+  - **Move History (Optional but Recommended):** To capture temporal information and handle situations like threefold repetition, a few previous board states (e.g., the last 8 half-moves) could be stacked as additional input planes. _Note: This feature is currently a design consideration and not yet implemented in the `ChessEnv`'s `get_state_planes` method._
 
 The total number of planes will be 21 (12 for pieces + 2 for player to move + 4 for castling rights + 1 for en passant + 1 for halfmove clock + 1 for fullmove number).

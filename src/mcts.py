@@ -43,7 +43,7 @@ class MCTSNode:
         # print(f"  UCB Calc: root_turn={self.board.turn}, child_turn={child_node.board.turn}, q_value_flipped={q_value}")
         # print(f"  UCB Calc: prior_prob={prior_prob}, sum_N_s_b (parent N)={sum_N_s_b}, c_puct={c_puct}")
 
-        exploration_term = c_puct * prior_prob * math.sqrt(sum_N_s_b) / (1 + child_node.N)
+        exploration_term = (c_puct * prior_prob * math.sqrt(sum_N_s_b)) / (1 + child_node.N)
         ucb = q_value + exploration_term
         # print(f"  UCB Calc: final_ucb={ucb}")
         return ucb
@@ -119,24 +119,28 @@ class MCTS:
         chess_env: ChessEnv,
         move_encoder: MoveEncoderDecoder,
         c_puct: float = 1.0,
+        max_depth: int = 40,  # Added max_depth parameter, default 40 half-moves
     ):
         self.model = model
         self.chess_env = chess_env
         self.move_encoder = move_encoder
         self.c_puct = c_puct
+        self.max_depth = max_depth
 
     def run_simulations(self, root_node: MCTSNode, num_simulations: int):
         for i in range(num_simulations):
             current_node = root_node
             path = [current_node]
+            current_depth = 0
 
             # Selection
-            while current_node.is_expanded and not current_node.board.is_game_over():
+            while current_node.is_expanded and not current_node.board.is_game_over() and current_depth < self.max_depth:
                 move, next_node = current_node.select_child(self.c_puct)
                 if next_node is None:
                     break
                 current_node = next_node
                 path.append(current_node)
+                current_depth += 1
 
             # If current_node became None due to break, skip this simulation
             if current_node is None:

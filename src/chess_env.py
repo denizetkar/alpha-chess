@@ -1,5 +1,6 @@
 import chess
 import numpy as np
+from collections import deque
 
 
 class ChessEnv:
@@ -10,16 +11,25 @@ class ChessEnv:
 
     def __init__(self):
         self.board = chess.Board()
+        self.board_history = deque(maxlen=8)  # Store last 8 half-moves for input planes
 
     def reset(self):
         """Resets the board to the initial state."""
         self.board.reset()
+        self.board_history.clear()
+        self._update_history()
         return self.get_state_planes()
 
     def push_move(self, move: chess.Move):
         """Applies a move to the board."""
         self.board.push(move)
+        self._update_history()
         return self.get_state_planes(), self.board.is_game_over(), self.board.result()
+
+    def _update_history(self):
+        """Adds the current board state to history."""
+        # Store a copy of the board to prevent modification issues
+        self.board_history.append(self.board.copy())
 
     def get_legal_moves(self):
         """Returns a list of legal moves."""
@@ -42,11 +52,15 @@ class ChessEnv:
         18: En passant target square
         19: Fifty-move rule counter (normalized)
         20: Fullmove number (normalized)
+        21-28: Last 8 half-moves (current board + 7 previous boards)
+               Each of these 8 planes indicates the player to move for that historical board.
+               1 if white to move, 0 if black to move.
 
-        Total planes: 12 + 2 + 4 + 1 + 1 + 1 = 21 planes.
+        Total planes: 12 + 2 + 4 + 1 + 1 + 1 + 8 = 29 planes.
         Each plane is 8x8.
         """
-        planes = np.zeros((21, 8, 8), dtype=np.float32)
+        # Initialize with 29 planes
+        planes = np.zeros((29, 8, 8), dtype=np.float32)
 
         # Piece planes (0-11)
         piece_map = self.board.piece_map()
@@ -87,6 +101,14 @@ class ChessEnv:
         # A typical game might have 50-100 full moves, but can be much more.
         # Using 2000 as a rough upper bound for normalization.
         planes[20, :, :] = (self.board.fullmove_number - 1) / 2000.0
+
+        # Move history planes (21-28)
+        # Iterate through history from oldest to newest, filling planes from 21 onwards
+        for i, hist_board in enumerate(self.board_history):
+            if i < 8:  # Ensure we don't go out of bounds for the 8 history planes
+                if hist_board.turn == chess.WHITE:
+                    planes[21 + i, :, :] = 1  # White to move in this historical state
+                # Else, it's 0 (already initialized) for Black to move
 
         return planes
 

@@ -6,7 +6,7 @@ class TestChessEnv:
     def test_initial_state(self):
         env = ChessEnv()
         initial_planes = env.reset()
-        assert initial_planes.shape == (21, 8, 8)
+        assert initial_planes.shape == (29, 8, 8)  # Updated to 29 planes
         assert env.board.fen() == chess.STARTING_FEN
         assert not env.is_game_over()
 
@@ -15,7 +15,7 @@ class TestChessEnv:
         move = chess.Move.from_uci("e2e4")
         state_planes, is_over, result = env.push_move(move)
         assert env.board.fen() == "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
-        assert state_planes.shape == (21, 8, 8)
+        assert state_planes.shape == (29, 8, 8)  # Updated to 29 planes
         assert not is_over
         assert result == "*"
 

@@ -22,6 +22,11 @@ class Tester:
         ).to(self.device)
         self.model.eval()  # Set model to evaluation mode
 
+        # Compile the model if PyTorch 2.0+ is available and configured
+        if self.config["testing"]["use_torch_compile"] and hasattr(torch, "compile"):
+            print("Compiling model with torch.compile for testing...")
+            self.model = torch.compile(self.model)  # type: ignore
+
         self.checkpoint_dir = self.config["checkpointing"]["checkpoint_dir"]
 
     def _load_config(self, config_path):
@@ -30,13 +35,13 @@ class Tester:
 
     def _load_model(self, checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
-        self.model.load_state_dict(checkpoint["model_state_dict"])
+        self.model.load_state_dict(checkpoint["model_state_dict"])  # type: ignore
         print(f"Model loaded from {checkpoint_path}")
 
     def _play_game_with_agent(self, agent_color: chess.Color):
         self.chess_env.reset()
         current_board = self.chess_env.board.copy()
-        mcts = MCTS(self.model, self.chess_env, self.move_encoder, c_puct=self.config["mcts"]["c_puct"])
+        mcts = MCTS(self.model, self.chess_env, self.move_encoder, c_puct=self.config["mcts"]["c_puct"])  # type: ignore
 
         game_moves = []
         while not current_board.is_game_over():
@@ -91,7 +96,7 @@ class Tester:
             self.chess_env.reset()
             current_board = self.chess_env.board.copy()
             root_node = MCTSNode(current_board)
-            mcts = MCTS(self.model, self.chess_env, self.move_encoder, c_puct=self.config["mcts"]["c_puct"])
+            mcts = MCTS(self.model, self.chess_env, self.move_encoder, c_puct=self.config["mcts"]["c_puct"])  # type: ignore
 
             while not current_board.is_game_over():
                 mcts.run_simulations(root_node, self.config["mcts"]["simulations_per_move"])
@@ -135,7 +140,7 @@ class Tester:
 
         self.chess_env.reset()
         current_board = self.chess_env.board.copy()
-        mcts = MCTS(self.model, self.chess_env, self.move_encoder, c_puct=self.config["mcts"]["c_puct"])
+        mcts = MCTS(self.model, self.chess_env, self.move_encoder, c_puct=self.config["mcts"]["c_puct"])  # type: ignore
 
         while not current_board.is_game_over():
             print("\n" + str(current_board))
@@ -213,6 +218,8 @@ if __name__ == "__main__":
           load_checkpoint_path: ""
         logging:
           tensorboard_log_dir: "runs/alpha_chess_experiment"
+        testing: # New section for testing specific configs
+          use_torch_compile: True # New parameter for torch.compile in testing
         """
         with open(config_path, "w") as f:
             f.write(dummy_config_content)

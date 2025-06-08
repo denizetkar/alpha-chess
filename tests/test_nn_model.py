@@ -8,7 +8,7 @@ class TestAlphaChessNet:
     def test_model_init(self):
         model = AlphaChessNet(num_residual_blocks=2, num_filters=64)
         assert isinstance(model, nn.Module)
-        assert model.conv_block[0].in_channels == 21
+        assert model.conv_block[0].in_channels == 29
         assert model.policy_head[-1].out_features == 4672
         assert model.value_head[-2].out_features == 1  # Check the Linear layer before Tanh
 
@@ -19,7 +19,7 @@ class TestAlphaChessNet:
 
     def test_forward_pass(self):
         model = AlphaChessNet(num_residual_blocks=2, num_filters=64)
-        dummy_input = torch.randn(1, 21, 8, 8)  # Batch size 1, 21 planes, 8x8 board
+        dummy_input = torch.randn(1, 29, 8, 8)  # Batch size 1, 29 planes, 8x8 board
 
         policy_logits, value = model(dummy_input)
 
@@ -32,7 +32,7 @@ class TestAlphaChessNet:
     def test_cuda_availability(self):
         if torch.cuda.is_available():
             model = AlphaChessNet().cuda()
-            dummy_input = torch.randn(1, 21, 8, 8).cuda()
+            dummy_input = torch.randn(1, 29, 8, 8).cuda()
             policy_logits, value = model(dummy_input)
             assert policy_logits.device.type == "cuda"
             assert value.device.type == "cuda"

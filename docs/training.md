@@ -18,13 +18,15 @@ The training script is designed to be robust and efficient, enabling continuous 
 ### 1.2. Neural Network Training Loop
 
 - **Batch Sampling:** Periodically, batches of experiences are sampled from the replay buffer.
-- **Reinforcement Learning Algorithm:** Proximal Policy Optimization (PPO) will be used to train the neural network. PPO is a policy gradient method that is known for its stability and performance.
-- **Loss Function:** The total loss function will be a combination of three components:
-  - **Policy Loss:** A cross-entropy loss between the neural network's predicted policy and the MCTS-derived policy from the replay buffer. This encourages the network to mimic the strong moves found by MCTS.
+- **Reinforcement Learning Algorithm:** The neural network is trained using a combination of policy and value losses, inspired by AlphaZero's approach.
+- **Loss Function:** The total loss function is a combination of three components:
+  - **Policy Loss:** A cross-entropy loss between the neural network's predicted policy (logits) and the MCTS-derived policy from the replay buffer. This encourages the network to mimic the strong moves found by MCTS.
   - **Value Loss:** A mean squared error (MSE) loss between the neural network's predicted value and the actual game outcome. This trains the network to accurately predict the game result.
-  - **L2 Regularization:** Applied to the network weights to prevent overfitting.
-- **Optimizer:** An Adam optimizer (or similar adaptive learning rate optimizer) will be used for gradient descent.
-- **Learning Rate Schedule:** A decaying learning rate schedule will be implemented to fine-tune the training process as it progresses.
+  - **L2 Regularization:** Applied to the network weights (typically via the optimizer's `weight_decay` parameter) to prevent overfitting.
+- **Optimizer:** An Adam optimizer is used for gradient descent.
+- **Learning Rate Schedule:** A decaying learning rate schedule can be configured to fine-tune the training process as it progresses. Supported types include:
+  - `cosine_annealing`: Uses `torch.optim.lr_scheduler.CosineAnnealingLR` for a smooth decay.
+  - `exponential`: Uses `torch.optim.lr_scheduler.ExponentialLR` for an exponential decay.
 
 ### 1.3. Checkpointing and Resumption
 
@@ -50,6 +52,8 @@ The training script is designed to be robust and efficient, enabling continuous 
     - `num_training_steps`: Total number of optimization steps.
     - `num_self_play_games_per_iteration`: Number of games generated in each self-play phase.
     - `mcts_simulations_per_move`: Number of MCTS simulations performed for each move during self-play.
+    - `dirichlet_alpha`: Alpha parameter for Dirichlet noise added to root node priors during self-play.
+    - `dirichlet_epsilon`: Epsilon parameter for mixing Dirichlet noise with root node priors.
     - `replay_buffer_capacity`: Maximum size of the replay buffer.
     - `checkpoint_frequency`: How often to save model checkpoints.
   - **Model Architecture Parameters:**
@@ -58,7 +62,13 @@ The training script is designed to be robust and efficient, enabling continuous 
   - **Game Environment Parameters:**
     - `game_rules`: Any specific chess rules or variants.
     - `time_limits`: Time limits per move during self-play (if applicable).
-- **Command-Line Overrides:** The training script will support overriding configuration parameters directly via command-line arguments, facilitating quick experimentation without modifying the config file.
+  - **Learning Rate Scheduler Parameters:**
+    - `use_scheduler`: Boolean, whether to use a learning rate scheduler.
+    - `type`: Type of scheduler (`cosine_annealing` or `exponential`).
+    - `t_max`: For `cosine_annealing`, maximum number of iterations.
+    - `eta_min`: For `cosine_annealing`, minimum learning rate.
+    - `gamma`: For `exponential`, multiplicative factor of learning rate decay.
+- **Command-Line Overrides:** The `train.py` script supports overriding key configuration parameters directly via command-line arguments using `argparse`. This facilitates quick experimentation and headless execution without modifying the `config.yaml` file. Examples include `--learning_rate`, `--num_iterations`, `--simulations_per_move`, `--load_checkpoint_path`, and `--use_mixed_precision`.
 
 ## 3. Testing Script (`test.py`)
 
@@ -87,4 +97,4 @@ A separate script will be provided to evaluate the trained AlphaChess agent in d
 - **Mixed-Precision Training (FP16):** `torch.cuda.amp` will be used to reduce memory consumption and speed up training.
 - **Batch Sizes:** Batch sizes for both self-play and training will be carefully tuned to fit within the 8GB VRAM.
 - **MCTS Memory Management:** Techniques like node pruning or explicit garbage collection will be employed to keep MCTS tree memory usage within the 16GB RAM limit.
-- **`torch.compile`:** This PyTorch 2.0+ feature will be explored to further optimize the execution speed of the neural network.
+- **`torch.compile`:** This PyTorch 2.0+ feature is utilized to further optimize the execution speed of the neural network.

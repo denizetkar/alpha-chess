@@ -17,7 +17,7 @@ class AlphaChessNet(nn.Module):
 
         # Initial convolutional block
         self.conv_block = nn.Sequential(
-            nn.Conv2d(21, num_filters, kernel_size=3, padding=1),  # 21 input planes from ChessEnv
+            nn.Conv2d(29, num_filters, kernel_size=3, padding=1),  # 29 input planes from ChessEnv (21 + 8 history)
             nn.BatchNorm2d(num_filters),
             nn.ReLU(),
         )
@@ -56,7 +56,7 @@ class AlphaChessNet(nn.Module):
     def forward(self, x: torch.Tensor):
         """
         Forward pass through the network.
-        x: Input tensor representing board state planes (batch_size, 35, 8, 8)
+        x: Input tensor representing board state planes (batch_size, 29, 8, 8)
         """
         x = self.conv_block(x)
         for block in self.residual_blocks:
@@ -93,7 +93,7 @@ class ResidualBlock(nn.Module):
 if __name__ == "__main__":
     # Test with default parameters
     model = AlphaChessNet()
-    dummy_input = torch.randn(1, 21, 8, 8)  # Batch size 1, 21 planes, 8x8 board
+    dummy_input = torch.randn(1, 29, 8, 8)  # Batch size 1, 29 planes, 8x8 board
     policy_logits, value = model(dummy_input)
 
     print(f"Model: {model}")
@@ -102,7 +102,7 @@ if __name__ == "__main__":
 
     # Test with custom parameters
     model_large = AlphaChessNet(num_residual_blocks=20, num_filters=512)
-    dummy_input_large = torch.randn(2, 21, 8, 8)  # Batch size 2
+    dummy_input_large = torch.randn(2, 29, 8, 8)  # Batch size 2
     policy_logits_large, value_large = model_large(dummy_input_large)
 
     print(f"\nModel (Large): {model_large}")
@@ -113,7 +113,7 @@ if __name__ == "__main__":
     if torch.cuda.is_available():
         print("\nCUDA is available. Testing model on GPU.")
         model_gpu = AlphaChessNet().cuda()
-        dummy_input_gpu = torch.randn(1, 21, 8, 8).cuda()
+        dummy_input_gpu = torch.randn(1, 29, 8, 8).cuda()
         policy_logits_gpu, value_gpu = model_gpu(dummy_input_gpu)
         print(f"Policy logits (GPU) device: {policy_logits_gpu.device}")
         print(f"Value (GPU) device: {value_gpu.device}")
