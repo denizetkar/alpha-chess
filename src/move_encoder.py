@@ -56,7 +56,18 @@ class MoveEncoderDecoder:
         for from_sq in chess.SQUARES:
             for move_type_idx, (dr, dc, promo_piece_type) in enumerate(self.idx_to_move_type):
                 from_rank, from_file = chess.square_rank(from_sq), chess.square_file(from_sq)
-                to_rank, to_file = from_rank + dr, from_file + dc
+                # Adjust dr for black pawn promotions
+                adjusted_dr = dr
+                if promo_piece_type is not None:
+                    # If it's a promotion move type, and the from_sq is on the 2nd rank (for black pawn)
+                    # then the pawn is black and moves 'up' the board (rank 1 to 0), so dr should be -1.
+                    # The promo_deltas are defined as (1,0), (1,-1), (1,1) for white's perspective.
+                    # So if from_rank is 1 (for black pawn on 2nd rank), dr should be -1.
+                    if from_rank == 1:  # This is a black pawn on its 2nd rank
+                        adjusted_dr = -dr  # Flip the delta for black pawns
+                    # No need to check for white pawn on 7th rank (rank 6) as dr=1 is already correct.
+
+                to_rank, to_file = from_rank + adjusted_dr, from_file + dc
 
                 # Check if to_square is on board
                 if not (0 <= to_rank < 8 and 0 <= to_file < 8):
@@ -119,7 +130,20 @@ class MoveEncoderDecoder:
 
         # Handle non-promotion moves and Queen promotions
         if move_type_idx == -1:  # Only proceed if move_type_idx hasn't been found yet (i.e., not an underpromotion)
-            if piece.piece_type == chess.KNIGHT:
+            if board.is_castling(move):
+                # Castling moves are special King moves that cover 2 squares.
+                # They should be mapped to the corresponding 2-step sliding move type.
+                # The dr, dc are already calculated.
+                step = max(abs(dr), abs(dc))
+                norm_dr = dr // step if step != 0 else 0
+                norm_dc = dc // step if step != 0 else 0
+
+                castling_move_type_tuple = (norm_dr * step, norm_dc * step, None)
+                if castling_move_type_tuple in self.move_types_map:
+                    move_type_idx = self.move_types_map[castling_move_type_tuple]
+                else:
+                    raise ValueError(f"Castling move {move.uci()} not found in defined sliding types.")
+            elif piece.piece_type == chess.KNIGHT:
                 # Knight moves
                 # Find index in knight_deltas (indices 56-63)
                 for i, (kdr, kdc, _) in enumerate(self.idx_to_move_type[56:64]):
@@ -188,7 +212,15 @@ class MoveEncoderDecoder:
         dr, dc, promo_piece_type = self.idx_to_move_type[move_type_idx]
 
         from_rank, from_file = chess.square_rank(from_sq), chess.square_file(from_sq)
-        to_rank, to_file = from_rank + dr, from_file + dc
+
+        # Adjust dr for black pawn promotions in decode method
+        adjusted_dr = dr
+        if promo_piece_type is not None:
+            # If it's a promotion move type, and the from_sq is on the 2nd rank (for black pawn)
+            if from_rank == 1:  # This is a black pawn on its 2nd rank
+                adjusted_dr = -dr  # Flip the delta for black pawns
+
+        to_rank, to_file = from_rank + adjusted_dr, from_file + dc
 
         # Check if to_square is on board
         if not (0 <= to_rank < 8 and 0 <= to_file < 8):

@@ -6,7 +6,7 @@ authors = [
     { name = "Cline", email = "cline@example.com" }
 ]
 dependencies = [
-    "python-chess>=1.99",
+    "python-chess>=1.999",
     "torch>=2.7.1",
     "torchvision>=0.22.1",
     "torchrl>=0.8.1",
@@ -42,3 +42,8 @@ explicit = true
 testpaths = ["tests"]
 python_files = "test_*.py"
 pythonpath = ["src"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.0",
+]
