@@ -1,3 +1,5 @@
+import argparse
+
 import torch
 import torch.optim as optim
 import torch.nn.functional as F
@@ -314,77 +316,132 @@ class Trainer:
 
 
 def main():
-    import argparse
+    """
+    Main function to train the AlphaChess model.
+    Loads configuration, parses command-line arguments, and starts the training process.
+    """
 
-    parser = argparse.ArgumentParser(description="Train AlphaChess model.")
-    parser.add_argument(
+    parser = argparse.ArgumentParser(
+        description="Train the AlphaChess model using self-play and MCTS.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+
+    # General Options
+    general_group = parser.add_argument_group("General Options")
+    general_group.add_argument(
         "--config",
         type=str,
         default="config.yaml",
-        help="Path to the configuration YAML file.",
+        help="Path to the main configuration YAML file.",
     )
-    parser.add_argument(
+    general_group.add_argument(
+        "--seed",
+        type=int,
+        help="Set a specific random seed for reproducibility. Overrides config.",
+    )
+
+    # Training Overrides
+    training_group = parser.add_argument_group("Training Overrides")
+    training_group.add_argument(
         "--learning_rate",
         type=float,
-        help="Override learning rate from config.",
+        help="Override the learning rate from config.",
     )
-    parser.add_argument(
+    training_group.add_argument(
         "--num_iterations",
         type=int,
-        help="Override number of training iterations from config.",
+        help="Override the total number of training iterations (games) from config.",
     )
-    parser.add_argument(
+    training_group.add_argument(
+        "--games_per_iteration",
+        type=int,
+        dest="num_self_play_games_per_iteration",  # Map to config key
+        help="Override the number of self-play games generated per iteration from config.",
+    )
+    training_group.add_argument(
+        "--batch_size",
+        type=int,
+        help="Override the training batch size from config.",
+    )
+    training_group.add_argument(
+        "--num_training_steps",
+        type=int,
+        help="Override the number of training steps per iteration from config.",
+    )
+    training_group.add_argument(
+        "--replay_buffer_capacity",
+        type=int,
+        help="Override the replay buffer capacity from config.",
+    )
+    training_group.add_argument(
+        "--use_mixed_precision",
+        action=argparse.BooleanOptionalAction,
+        help="Enable or disable mixed precision training. Overrides config.",
+    )
+    training_group.add_argument(
+        "--use_torch_compile",
+        action=argparse.BooleanOptionalAction,
+        help="Enable or disable torch.compile for model optimization. Overrides config.",
+    )
+
+    # MCTS Overrides
+    mcts_group = parser.add_argument_group("MCTS Overrides")
+    mcts_group.add_argument(
         "--simulations_per_move",
         type=int,
-        help="Override MCTS simulations per move from config.",
+        help="Override the number of MCTS simulations per move from config.",
     )
-    parser.add_argument(
+    mcts_group.add_argument(
+        "--c_puct",
+        type=float,
+        help="Override the C_PUCT exploration constant for MCTS from config.",
+    )
+    mcts_group.add_argument(
+        "--max_depth",
+        type=int,
+        help="Override the maximum search depth for MCTS from config.",
+    )
+    mcts_group.add_argument(
+        "--dirichlet_alpha",
+        type=float,
+        help="Override the Dirichlet alpha parameter for MCTS exploration from config.",
+    )
+    mcts_group.add_argument(
+        "--dirichlet_epsilon",
+        type=float,
+        help="Override the Dirichlet epsilon parameter for MCTS exploration from config.",
+    )
+
+    # Checkpointing Options
+    checkpoint_group = parser.add_argument_group("Checkpointing Options")
+    checkpoint_group.add_argument(
         "--load_checkpoint_path",
         type=str,
-        help="Path to a checkpoint to load. Sets load_checkpoint to True.",
+        help="Path to a checkpoint file to load. If provided, training resumes from this checkpoint.",
     )
-    parser.add_argument(
-        "--use_mixed_precision",
-        type=bool,
-        help="Override use_mixed_precision from config (True/False).",
+    checkpoint_group.add_argument(
+        "--checkpoint_frequency",
+        type=int,
+        help="Override the frequency (in iterations) for saving checkpoints from config.",
     )
-    parser.add_argument(
-        "--use_torch_compile",
-        type=bool,
-        help="Override use_torch_compile from config (True/False).",
+    checkpoint_group.add_argument(
+        "--checkpoint_dir",
+        type=str,
+        help="Override the directory where checkpoints are saved from config.",
     )
-    # Add more arguments as needed for common overrides
+
+    # Logging Options
+    logging_group = parser.add_argument_group("Logging Options")
+    logging_group.add_argument(
+        "--tensorboard_log_dir",
+        type=str,
+        help="Override the directory for TensorBoard logs from config.",
+    )
 
     args = parser.parse_args()
 
-    # Load config
-    config_path = args.config
-    try:
-        if not os.path.exists(config_path):
-            raise FileNotFoundError(
-                f"Configuration file not found at {config_path}. Please create one or specify a valid path."
-            )
-
-        with open(config_path, "r") as f:
-            config = yaml.safe_load(f)
-    except (FileNotFoundError, yaml.YAMLError) as e:
-        print(f"Error loading configuration file {config_path}: {e}")
-        return  # Exit if config cannot be loaded
-
-    # Apply command-line overrides
-    if args.learning_rate is not None:
-        config["training"]["learning_rate"] = args.learning_rate
-    if args.num_iterations is not None:
-        config["training"]["num_iterations"] = args.num_iterations
-    if args.simulations_per_move is not None:
-        config["mcts"]["simulations_per_move"] = args.simulations_per_move
-    if args.load_checkpoint_path is not None:
-        config["checkpointing"]["load_checkpoint"] = True
-        config["checkpointing"]["load_checkpoint_path"] = args.load_checkpoint_path
-    if args.use_mixed_precision is not None:
-        config["training"]["use_mixed_precision"] = args.use_mixed_precision
-    if args.use_torch_compile is not None:
-        config["training"]["use_torch_compile"] = args.use_torch_compile
+    config = load_config(args.config)
+    config = apply_cli_overrides(config, args)
 
     # Set random seeds for reproducibility
     if "seed" in config["training"] and config["training"]["seed"] is not None:
@@ -396,9 +453,115 @@ def main():
             torch.cuda.manual_seed_all(seed)
         print(f"Random seed set to {seed}")
 
-    # Pass the modified config to the Trainer
-    trainer = Trainer(config=config)
-    trainer.train()
+    try:
+        # Pass the modified config to the Trainer
+        trainer = Trainer(config=config)
+        trainer.train()
+    except Exception as e:
+        print(f"An unexpected error occurred during training execution: {e}")
+        import sys
+
+        sys.exit(1)  # Exit with a non-zero status code to indicate an error
+
+
+def load_config(config_path: str) -> dict:
+    """Loads the configuration from a YAML file."""
+    try:
+        if not os.path.exists(config_path):
+            print(f"Configuration file not found at {config_path}. Using default configuration.")
+            # Provide a minimal default config if the file doesn't exist
+            return {
+                "model": {"num_residual_blocks": 2, "num_filters": 128},
+                "training": {
+                    "learning_rate": 0.001,
+                    "l2_regularization_coeff": 0.0001,
+                    "use_torch_compile": False,
+                    "lr_scheduler": {"use_scheduler": False},
+                    "replay_buffer_capacity": 10000,
+                    "num_iterations": 100,
+                    "num_self_play_games_per_iteration": 10,
+                    "batch_size": 256,
+                    "num_training_steps": 100,
+                    "use_mixed_precision": False,
+                    "seed": None,
+                },
+                "mcts": {
+                    "c_puct": 1.0,
+                    "simulations_per_move": 100,
+                    "max_depth": 10,
+                    "dirichlet_alpha": 0.3,
+                    "dirichlet_epsilon": 0.25,
+                },
+                "checkpointing": {
+                    "checkpoint_dir": "checkpoints",
+                    "checkpoint_frequency": 10,
+                    "load_checkpoint": False,
+                    "load_checkpoint_path": None,
+                },
+                "logging": {"tensorboard_log_dir": "runs"},
+            }
+
+        with open(config_path, "r") as f:
+            config = yaml.safe_load(f)
+            if config is None:  # Handle empty config file
+                print(f"Configuration file {config_path} is empty. Using default configuration.")
+                return load_config("")  # Recursively call with empty path to get defaults
+            return config
+    except yaml.YAMLError as e:
+        print(f"Error parsing configuration file {config_path}: {e}. Using default configuration.")
+        return load_config("")  # Recursively call with empty path to get defaults
+
+
+def apply_cli_overrides(config: dict, args: argparse.Namespace) -> dict:
+    """Applies command-line arguments to override configuration values."""
+    # General
+    if args.seed is not None:
+        config["training"]["seed"] = args.seed
+
+    # Training
+    if args.learning_rate is not None:
+        config["training"]["learning_rate"] = args.learning_rate
+    if args.num_iterations is not None:
+        config["training"]["num_iterations"] = args.num_iterations
+    if args.num_self_play_games_per_iteration is not None:
+        config["training"]["num_self_play_games_per_iteration"] = args.num_self_play_games_per_iteration
+    if args.batch_size is not None:
+        config["training"]["batch_size"] = args.batch_size
+    if args.num_training_steps is not None:
+        config["training"]["num_training_steps"] = args.num_training_steps
+    if args.replay_buffer_capacity is not None:
+        config["training"]["replay_buffer_capacity"] = args.replay_buffer_capacity
+    if args.use_mixed_precision is not None:
+        config["training"]["use_mixed_precision"] = args.use_mixed_precision
+    if args.use_torch_compile is not None:
+        config["training"]["use_torch_compile"] = args.use_torch_compile
+
+    # MCTS
+    if args.simulations_per_move is not None:
+        config["mcts"]["simulations_per_move"] = args.simulations_per_move
+    if args.c_puct is not None:
+        config["mcts"]["c_puct"] = args.c_puct
+    if args.max_depth is not None:
+        config["mcts"]["max_depth"] = args.max_depth
+    if args.dirichlet_alpha is not None:
+        config["mcts"]["dirichlet_alpha"] = args.dirichlet_alpha
+    if args.dirichlet_epsilon is not None:
+        config["mcts"]["dirichlet_epsilon"] = args.dirichlet_epsilon
+
+    # Checkpointing
+    if args.load_checkpoint_path is not None:
+        config["checkpointing"]["load_checkpoint"] = True
+        config["checkpointing"]["load_checkpoint_path"] = args.load_checkpoint_path
+    if args.checkpoint_frequency is not None:
+        config["checkpointing"]["checkpoint_frequency"] = args.checkpoint_frequency
+    if args.checkpoint_dir is not None:
+        config["checkpointing"]["checkpoint_dir"] = args.checkpoint_dir
+
+    # Logging
+    if args.tensorboard_log_dir is not None:
+        config["logging"]["tensorboard_log_dir"] = args.tensorboard_log_dir
+
+    return config
 
 
 if __name__ == "__main__":
