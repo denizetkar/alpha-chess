@@ -1,4 +1,5 @@
 import chess
+import numpy as np
 from src.chess_env import (
     ChessEnv,
     NUM_PLANES,
@@ -23,17 +24,17 @@ from src.chess_env import (
 class TestChessEnv:
     """Tests for the ChessEnv class."""
 
-    def test_initial_state(self):
+    def test_initial_state(self) -> None:
         """Tests the initial state of the chess environment."""
-        env = ChessEnv()
-        initial_planes = env.reset()
+        env: ChessEnv = ChessEnv()
+        initial_planes: np.ndarray = env.reset()
         assert initial_planes.shape == (NUM_PLANES, 8, 8)
         assert env.board.fen() == chess.STARTING_FEN
         assert not env.is_game_over()
 
-    def test_reset_history(self):
+    def test_reset_history(self) -> None:
         """Tests that the board history is correctly reset."""
-        env = ChessEnv()
+        env: ChessEnv = ChessEnv()
         # Push some moves to build up history
         env.push_move(chess.Move.from_uci("e2e4"))
         env.push_move(chess.Move.from_uci("e7e5"))
@@ -48,11 +49,23 @@ class TestChessEnv:
         assert env.board_history[0].fen() == chess.STARTING_FEN
         assert env.board.fen() == chess.STARTING_FEN
 
-    def test_board_history_management(self):
+    def test_board_history_management(self) -> None:
         """Tests the management of the board history, including maxlen and immutability."""
-        env = ChessEnv()
+        env: ChessEnv = ChessEnv()
         # Push more than NUM_HISTORY_PLANES moves to test maxlen
-        moves = ["e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "f8c5", "c2c3", "g8f6", "d2d4", "e5d4", "c3d4"]
+        moves: list[str] = [
+            "e2e4",
+            "e7e5",
+            "g1f3",
+            "b8c6",
+            "f1c4",
+            "f8c5",
+            "c2c3",
+            "g8f6",
+            "d2d4",
+            "e5d4",
+            "c3d4",
+        ]
         for move_uci in moves:
             env.push_move(chess.Move.from_uci(move_uci))
 
@@ -61,7 +74,7 @@ class TestChessEnv:
 
         # Verify that board.copy() is used (immutability)
         # Get a board from history
-        historical_board = env.board_history[0]
+        historical_board: chess.Board = env.board_history[0]
         # Make a change to the current board
         env.board.push(chess.Move.from_uci("d4e5"))
         # Ensure the historical board remains unchanged
@@ -69,13 +82,13 @@ class TestChessEnv:
 
         # Let's reset and build history carefully to test planes.
         env.reset()
-        test_moves = ["e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "f8c5", "c2c3", "g8f6"]
+        test_moves: list[str] = ["e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "f8c5", "c2c3", "g8f6"]
         for move_uci in test_moves:
             env.push_move(chess.Move.from_uci(move_uci))
 
-        planes = env.get_state_planes()
+        planes: np.ndarray = env.get_state_planes()
 
-        expected_turns = [
+        expected_turns: list[bool] = [
             chess.BLACK,  # after e2e4
             chess.WHITE,  # after e7e5
             chess.BLACK,  # after g1f3
@@ -97,10 +110,13 @@ class TestChessEnv:
                     planes[HISTORY_PLANES_START + i, :, :] == 0
                 ).all(), f"Plane {HISTORY_PLANES_START + i} should be all zeros (Black)"
 
-    def test_push_move(self):
+    def test_push_move(self) -> None:
         """Tests applying a move and checking the resulting state."""
-        env = ChessEnv()
-        move = chess.Move.from_uci("e2e4")
+        env: ChessEnv = ChessEnv()
+        move: chess.Move = chess.Move.from_uci("e2e4")
+        state_planes: np.ndarray
+        is_over: bool
+        result: str
         state_planes, is_over, result = env.push_move(move)
         assert env.board.fen() == "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
         assert state_planes.shape == (NUM_PLANES, 8, 8)
@@ -116,23 +132,23 @@ class TestChessEnv:
         assert is_over
         assert result == "0-1"  # Black wins
 
-    def test_legal_moves(self):
+    def test_legal_moves(self) -> None:
         """Tests the generation of legal moves."""
-        env = ChessEnv()
-        initial_legal_moves = env.get_legal_moves()
+        env: ChessEnv = ChessEnv()
+        initial_legal_moves: list[chess.Move] = env.get_legal_moves()
         assert len(initial_legal_moves) == 20
 
         env.push_move(chess.Move.from_uci("e2e4"))
         env.push_move(chess.Move.from_uci("e7e5"))
-        legal_moves_after_e4e5 = env.get_legal_moves()
+        legal_moves_after_e4e5: list[chess.Move] = env.get_legal_moves()
         assert len(legal_moves_after_e4e5) > 0
 
-    def test_get_state_planes(self):
+    def test_get_state_planes(self) -> None:
         """Tests the conversion of board state to neural network input planes."""
-        env = ChessEnv()
+        env: ChessEnv = ChessEnv()
 
         # Test piece positions (White Pawn at E2, then E4)
-        initial_planes = env.get_state_planes()
+        initial_planes: np.ndarray = env.get_state_planes()
         assert (
             initial_planes[
                 chess.PAWN - 1 + WHITE_PIECE_PLANES_START, chess.square_rank(chess.E2), chess.square_file(chess.E2)
@@ -141,7 +157,7 @@ class TestChessEnv:
         )
 
         env.push_move(chess.Move.from_uci("e2e4"))
-        planes_after_e4 = env.get_state_planes()
+        planes_after_e4: np.ndarray = env.get_state_planes()
         assert (
             planes_after_e4[
                 chess.PAWN - 1 + WHITE_PIECE_PLANES_START, chess.square_rank(chess.E4), chess.square_file(chess.E4)
@@ -157,7 +173,7 @@ class TestChessEnv:
 
         # Test black piece position (Black Pawn at E7, then E5)
         env.push_move(chess.Move.from_uci("e7e5"))
-        planes_after_e5 = env.get_state_planes()
+        planes_after_e5: np.ndarray = env.get_state_planes()
         assert (
             planes_after_e5[
                 chess.PAWN - 1 + BLACK_PIECE_PLANES_START,
@@ -195,7 +211,7 @@ class TestChessEnv:
         env.push_move(chess.Move.from_uci("g8f6"))
         env.push_move(chess.Move.from_uci("d5d4"))
         env.push_move(chess.Move.from_uci("c7c5"))  # Creates en passant target on c6
-        planes_ep = env.get_state_planes()
+        planes_ep: np.ndarray = env.get_state_planes()
         assert env.board.ep_square == chess.C6
         assert planes_ep[EN_PASSANT_PLANE, chess.square_rank(chess.C6), chess.square_file(chess.C6)] == 1
 
@@ -207,7 +223,7 @@ class TestChessEnv:
         env.push_move(chess.Move.from_uci("g1f3"))
         env.push_move(chess.Move.from_uci("b8c6"))
 
-        planes_counters = env.get_state_planes()
+        planes_counters: np.ndarray = env.get_state_planes()
         # Halfmove clock should be 2 after 1. e4 e5 2. Nf3 Nc6 (no captures/pawn moves)
         assert env.board.halfmove_clock == 2
         assert planes_counters[FIFTY_MOVE_PLANE, 0, 0] == 2 / FIFTY_MOVE_NORMALIZATION_FACTOR
@@ -218,9 +234,9 @@ class TestChessEnv:
 
         # Test castling rights removal (White King moves)
         env.reset()
-        env.board.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
+        env.board.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPP1PPP/RNBQKBNR w KQkq - 0 1")
         env.push_move(chess.Move.from_uci("e1e2"))  # King moves, loses castling rights
-        planes_castling_removed = env.get_state_planes()
+        planes_castling_removed: np.ndarray = env.get_state_planes()
         assert planes_castling_removed[WHITE_KINGSIDE_CASTLING_PLANE, 0, 0] == 0
         assert planes_castling_removed[WHITE_QUEENSIDE_CASTLING_PLANE, 0, 0] == 0
         assert planes_castling_removed[BLACK_KINGSIDE_CASTLING_PLANE, 0, 0] == 1
@@ -230,7 +246,7 @@ class TestChessEnv:
         env.reset()
         env.push_move(chess.Move.from_uci("e2e4"))  # White pawn double push
         env.push_move(chess.Move.from_uci("a7a6"))  # Black makes a non-en-passant move
-        planes_ep_disappear = env.get_state_planes()
+        planes_ep_disappear: np.ndarray = env.get_state_planes()
         assert env.board.ep_square is None
         assert planes_ep_disappear[EN_PASSANT_PLANE, :, :].sum() == 0
 
@@ -238,7 +254,7 @@ class TestChessEnv:
         env.reset()
         env.board.set_fen("8/P7/8/8/8/8/8/K7 w - - 0 1")  # White pawn on a7
         env.push_move(chess.Move.from_uci("a7a8q"))  # Promote to Queen
-        planes_promotion = env.get_state_planes()
+        planes_promotion: np.ndarray = env.get_state_planes()
         assert (
             planes_promotion[
                 chess.PAWN - 1 + WHITE_PIECE_PLANES_START, chess.square_rank(chess.A7), chess.square_file(chess.A7)
@@ -254,12 +270,12 @@ class TestChessEnv:
             == 1
         )
 
-    def test_game_termination_conditions(self):
+    def test_game_termination_conditions(self) -> None:
         """
         Tests various game termination conditions
         (stalemate, threefold repetition, fifty-move rule, insufficient material).
         """
-        env = ChessEnv()
+        env: ChessEnv = ChessEnv()
 
         # Test Stalemate
         env.board.set_fen("8/8/8/8/8/8/7k/7K w - - 0 1")  # Stalemate position
@@ -271,7 +287,7 @@ class TestChessEnv:
         # Sequence: 1. Nf3 Nc6 2. Ng1 Nb8 3. Nf3 Nc6 4. Ng1 Nb8 5. Nf3
         # This sequence ensures the FEN (including halfmove clock, castling rights, en passant)
         # repeats exactly three times for the position after White's Nf3.
-        moves_for_repetition = [
+        moves_for_repetition: list[str] = [
             "g1f3",
             "b8c6",
             "f3g1",

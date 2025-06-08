@@ -18,7 +18,7 @@ class AlphaChessNet(nn.Module):
     a series of residual blocks, and two heads: a policy head and a value head.
     """
 
-    def __init__(self, num_residual_blocks: int = 10, num_filters: int = 256):
+    def __init__(self, num_residual_blocks: int = 10, num_filters: int = 256) -> None:
         """
         Initializes the AlphaChessNet.
 
@@ -33,14 +33,16 @@ class AlphaChessNet(nn.Module):
 
         # Initial convolutional block
         # INPUT_PLANES from ChessEnv (21 + 8 history)
-        self.conv_block = nn.Sequential(
+        self.conv_block: nn.Sequential = nn.Sequential(
             nn.Conv2d(INPUT_PLANES, num_filters, kernel_size=3, padding=1),
             nn.BatchNorm2d(num_filters),
             nn.ReLU(),
         )
 
         # Residual blocks
-        self.residual_blocks = nn.ModuleList([ResidualBlock(num_filters) for _ in range(num_residual_blocks)])
+        self.residual_blocks: nn.ModuleList = nn.ModuleList(
+            [ResidualBlock(num_filters) for _ in range(num_residual_blocks)]
+        )
 
         # Policy head
         # AlphaZero uses 73 action planes (8x8 board) for move representation.
@@ -51,7 +53,7 @@ class AlphaChessNet(nn.Module):
         #   and pawn moves including 2 pushes, 2 captures, 3 underpromotions for each)
         # Total POLICY_PLANES: 56 + 8 + 9 (for king moves, pawn moves, and underpromotions)
         # This is a common interpretation.
-        self.policy_head = nn.Sequential(
+        self.policy_head: nn.Sequential = nn.Sequential(
             nn.Conv2d(num_filters, POLICY_PLANES, kernel_size=1),  # POLICY_PLANES action planes
             nn.BatchNorm2d(POLICY_PLANES),
             nn.ReLU(),
@@ -60,7 +62,7 @@ class AlphaChessNet(nn.Module):
         )
 
         # Value head
-        self.value_head = nn.Sequential(
+        self.value_head: nn.Sequential = nn.Sequential(
             nn.Conv2d(num_filters, 1, kernel_size=1),  # 1 filter for value
             nn.BatchNorm2d(1),
             nn.ReLU(),
@@ -90,8 +92,8 @@ class AlphaChessNet(nn.Module):
         for block in self.residual_blocks:
             x = block(x)
 
-        policy_logits = self.policy_head(x)
-        value = self.value_head(x)
+        policy_logits: torch.Tensor = self.policy_head(x)
+        value: torch.Tensor = self.value_head(x)
 
         return F.log_softmax(policy_logits, dim=1), value
 
@@ -104,7 +106,7 @@ class ResidualBlock(nn.Module):
     with a skip connection adding the input to the output of the second convolutional layer.
     """
 
-    def __init__(self, num_filters: int):
+    def __init__(self, num_filters: int) -> None:
         """
         Initializes a ResidualBlock.
 
@@ -112,10 +114,10 @@ class ResidualBlock(nn.Module):
             num_filters (int): Number of filters for the convolutional layers.
         """
         super().__init__()
-        self.conv1 = nn.Conv2d(num_filters, num_filters, kernel_size=3, padding=1)
-        self.bn1 = nn.BatchNorm2d(num_filters)
-        self.conv2 = nn.Conv2d(num_filters, num_filters, kernel_size=3, padding=1)
-        self.bn2 = nn.BatchNorm2d(num_filters)
+        self.conv1: nn.Conv2d = nn.Conv2d(num_filters, num_filters, kernel_size=3, padding=1)
+        self.bn1: nn.BatchNorm2d = nn.BatchNorm2d(num_filters)
+        self.conv2: nn.Conv2d = nn.Conv2d(num_filters, num_filters, kernel_size=3, padding=1)
+        self.bn2: nn.BatchNorm2d = nn.BatchNorm2d(num_filters)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -127,41 +129,9 @@ class ResidualBlock(nn.Module):
         Returns:
             torch.Tensor: Output tensor after applying residual connections and activations.
         """
-        residual = x
-        out = F.relu(self.bn1(self.conv1(x)))
+        residual: torch.Tensor = x
+        out: torch.Tensor = F.relu(self.bn1(self.conv1(x)))
         out = self.bn2(self.conv2(out))
         out += residual  # Add skip connection
         out = F.relu(out)
         return out
-
-
-# Example Usage (for testing)
-if __name__ == "__main__":
-    # Test with default parameters
-    model = AlphaChessNet()
-    dummy_input = torch.randn(1, INPUT_PLANES, 8, 8)  # Batch size 1, INPUT_PLANES, 8x8 board
-    policy_logits, value = model(dummy_input)
-
-    print(f"Model: {model}")
-    print(f"Policy logits shape: {policy_logits.shape}")  # Expected: (1, FLATTENED_POLICY_SIZE)
-    print(f"Value shape: {value.shape}")  # Expected: (1, 1)
-
-    # Test with custom parameters
-    model_large = AlphaChessNet(num_residual_blocks=20, num_filters=512)
-    dummy_input_large = torch.randn(2, INPUT_PLANES, 8, 8)  # Batch size 2
-    policy_logits_large, value_large = model_large(dummy_input_large)
-
-    print(f"\nModel (Large): {model_large}")
-    print(f"Policy logits (Large) shape: {policy_logits_large.shape}")  # Expected: (2, FLATTENED_POLICY_SIZE)
-    print(f"Value (Large) shape: {value_large.shape}")  # Expected: (2, 1)
-
-    # Test GPU availability
-    if torch.cuda.is_available():
-        print("\nCUDA is available. Testing model on GPU.")
-        model_gpu = AlphaChessNet().cuda()
-        dummy_input_gpu = torch.randn(1, INPUT_PLANES, 8, 8).cuda()
-        policy_logits_gpu, value_gpu = model_gpu(dummy_input_gpu)
-        print(f"Policy logits (GPU) device: {policy_logits_gpu.device}")
-        print(f"Value (GPU) device: {value_gpu.device}")
-    else:
-        print("\nCUDA is not available. Model will run on CPU.")

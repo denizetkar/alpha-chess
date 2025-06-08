@@ -4,12 +4,18 @@ from src.move_encoder import MoveEncoderDecoder
 
 
 @pytest.fixture
-def encoder():
+def encoder() -> MoveEncoderDecoder:
+    """
+    Pytest fixture to provide a MoveEncoderDecoder instance for tests.
+    """
     return MoveEncoderDecoder()
 
 
 class TestMoveEncoderDecoder:
-    def test_initial_mapping_size(self, encoder):
+    def test_initial_mapping_size(self, encoder: MoveEncoderDecoder) -> None:
+        """
+        Tests the initial size and structure of the move encoder's internal mappings.
+        """
         assert len(encoder.idx_to_move) == 4672
         assert encoder.total_actions == 4672
         assert len(encoder.move_types_map) == 73
@@ -18,7 +24,6 @@ class TestMoveEncoderDecoder:
     @pytest.mark.parametrize(
         "fen, move_uci, is_promotion_to_queen",
         [
-            # Common moves from initial board
             # Common moves from initial board
             (chess.STARTING_FEN, "e2e4", False),
             ("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1", "d7d5", False),
@@ -61,15 +66,23 @@ class TestMoveEncoderDecoder:
             ("r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1", "e8c8", False),  # Black queenside castling
         ],
     )
-    def test_encode_decode_identity(self, encoder, fen, move_uci, is_promotion_to_queen):
-        board = chess.Board(fen)
-        move = chess.Move.from_uci(move_uci)
+    def test_encode_decode_identity(
+        self, encoder: MoveEncoderDecoder, fen: str, move_uci: str, is_promotion_to_queen: bool
+    ) -> None:
+        """
+        Tests that encoding a move and then decoding the resulting index
+        returns the original move (identity test).
+        Handles special cases like queen promotions where AlphaZero's encoding
+        does not distinguish the promotion piece.
+        """
+        board: chess.Board = chess.Board(fen)
+        move: chess.Move = chess.Move.from_uci(move_uci)
 
         # Ensure the move is legal on the current board for encoding to be meaningful
         assert board.is_legal(move), f"Move {move_uci} is not legal on board {fen}"
 
-        encoded_idx = encoder.encode(board, move)
-        decoded_move = encoder.decode(encoded_idx)
+        encoded_idx: int = encoder.encode(board, move)
+        decoded_move: chess.Move = encoder.decode(encoded_idx)
 
         # AlphaZero's 73-plane encoding does not distinguish Queen promotions
         # from regular sliding moves. So, decoded_move will have promotion=None
@@ -81,25 +94,33 @@ class TestMoveEncoderDecoder:
         else:
             assert decoded_move == move, f"Failed for move: {move.uci()} on board {fen}"
 
-    def test_encode_invalid_move(self, encoder):
-        board = chess.Board()
+    def test_encode_invalid_move(self, encoder: MoveEncoderDecoder) -> None:
+        """
+        Tests that encoding an invalid move (e.g., from an empty square) raises a ValueError.
+        """
+        board: chess.Board = chess.Board()
         # Test encoding a move from an empty square
-        empty_square_move = chess.Move.from_uci("a3a4")
+        empty_square_move: chess.Move = chess.Move.from_uci("a3a4")
         with pytest.raises(ValueError, match="No piece at from_square"):
             encoder.encode(board, empty_square_move)
 
-    def test_decode_out_of_bounds(self, encoder):
+    def test_decode_out_of_bounds(self, encoder: MoveEncoderDecoder) -> None:
+        """
+        Tests that decoding an index out of the valid range raises an IndexError.
+        """
         with pytest.raises(IndexError):
             encoder.decode(4672)
         with pytest.raises(IndexError):
             encoder.decode(-1)
 
-    def test_all_indices_decode_to_valid_moves(self, encoder):
-        # This test ensures that every index in the 0-4671 range
-        # can be decoded into a chess.Move object without error.
-        # The legality of the move is not checked here, only that it's a valid chess.Move object.
+    def test_all_indices_decode_to_valid_moves(self, encoder: MoveEncoderDecoder) -> None:
+        """
+        This test ensures that every index in the 0-4671 range
+        can be decoded into a chess.Move object without error.
+        The legality of the move is not checked here, only that it's a valid chess.Move object.
+        """
         for i in range(encoder.total_actions):
-            move = encoder.decode(i)
+            move: chess.Move = encoder.decode(i)
             assert isinstance(move, chess.Move)
             # Optionally, check if the move is not a dummy a1a1 unless it's an off-board target
             # This is harder to test without knowing the (from_sq, move_type) mapping directly.

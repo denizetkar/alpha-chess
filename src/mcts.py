@@ -1,7 +1,8 @@
 import math
 import chess
 import torch
-from typing import Dict, Optional, Tuple
+import numpy as np  # Added numpy import
+from typing import Optional
 
 from .chess_env import ChessEnv
 from .move_encoder import MoveEncoderDecoder
@@ -13,7 +14,9 @@ class MCTSNode:
     Each node corresponds to a specific board state.
     """
 
-    def __init__(self, board: chess.Board, parent: Optional["MCTSNode"] = None, move: Optional[chess.Move] = None):
+    def __init__(
+        self, board: chess.Board, parent: Optional["MCTSNode"] = None, move: Optional[chess.Move] = None
+    ) -> None:
         """
         Initializes an MCTS node.
 
@@ -22,16 +25,16 @@ class MCTSNode:
             parent: The parent MCTSNode of this node. None for the root node.
             move: The chess.Move that led to this board state from the parent.
         """
-        self.board = board
-        self.parent = parent
-        self.move = move
-        self.children: Dict[chess.Move, MCTSNode] = {}
+        self.board: chess.Board = board
+        self.parent: Optional["MCTSNode"] = parent
+        self.move: Optional[chess.Move] = move
+        self.children: dict[chess.Move, MCTSNode] = {}
         self.N: int = 0  # Visit count
         self.W: float = 0.0  # Total action-value
         self.Q: float = 0.0  # Mean action-value (W/N)
-        self.P: Optional[Dict[chess.Move, float]] = None  # Policy probabilities from the neural network
-        self.is_expanded = False  # True if this node has been expanded by the neural network
-        self.legal_moves = list(board.legal_moves)
+        self.P: Optional[dict[chess.Move, float]] = None  # Policy probabilities from the neural network
+        self.is_expanded: bool = False  # True if this node has been expanded by the neural network
+        self.legal_moves: list[chess.Move] = list(board.legal_moves)
 
     def ucb_score(self, child_move: chess.Move, c_puct: float) -> float:
         """
@@ -44,28 +47,28 @@ class MCTSNode:
         Returns:
             The UCB score for the child node.
         """
-        child_node = self.children.get(child_move)
-        prior_prob = self.P.get(child_move, 0.0) if self.P is not None else 0.0
+        child_node: Optional[MCTSNode] = self.children.get(child_move)
+        prior_prob: float = self.P.get(child_move, 0.0) if self.P is not None else 0.0
 
         if child_node is None or child_node.N == 0:
             # For unvisited nodes, return a high value based on prior probability
             # to encourage exploration. If prior_prob is 0, return -inf to avoid selection.
             return float("inf") if prior_prob > 0 else -float("inf")
 
-        q_value = child_node.Q
+        q_value: float = child_node.Q
         # Invert Q-value if the child node's turn is different from the current node's turn
         # because Q-values are from the perspective of the player to move at the child node.
         if self.board.turn != child_node.board.turn:
             q_value = -q_value
 
-        parent_total_visits = self.N
+        parent_total_visits: int = self.N
 
-        c_prior_prod = c_puct * prior_prob
-        exploration_term = c_prior_prod * math.sqrt(parent_total_visits) / (1 + child_node.N)
-        ucb = q_value + exploration_term
+        c_prior_prod: float = c_puct * prior_prob
+        exploration_term: float = c_prior_prod * math.sqrt(parent_total_visits) / (1 + child_node.N)
+        ucb: float = q_value + exploration_term
         return ucb
 
-    def select_child(self, c_puct: float) -> Tuple[Optional[chess.Move], Optional["MCTSNode"]]:
+    def select_child(self, c_puct: float) -> tuple[Optional[chess.Move], Optional["MCTSNode"]]:
         """
         Selects the child node with the highest UCB score.
 
@@ -79,12 +82,12 @@ class MCTSNode:
         if not self.legal_moves:
             return None, None
 
-        best_move = None
-        best_score = -float("inf")
-        best_prior_prob = -1.0  # Used for tie-breaking when scores are infinite
+        best_move: Optional[chess.Move] = None
+        best_score: float = -float("inf")
+        best_prior_prob: float = -1.0  # Used for tie-breaking when scores are infinite
 
         for move in self.legal_moves:
-            current_score = self.ucb_score(move, c_puct)
+            current_score: float = self.ucb_score(move, c_puct)
 
             # Select the child with the highest UCB score.
             # If scores are equal and infinite, prefer the one with higher prior probability.
@@ -98,13 +101,13 @@ class MCTSNode:
                 if current_score == float("inf"):
                     best_prior_prob = self.P.get(move, 0.0) if self.P is not None else 0.0
             elif current_score == best_score and current_score == float("inf"):
-                prior_prob_for_move = self.P.get(move, 0.0) if self.P is not None else 0.0
+                prior_prob_for_move: float = self.P.get(move, 0.0) if self.P is not None else 0.0
                 if prior_prob_for_move > best_prior_prob:
                     best_prior_prob = prior_prob_for_move
                     best_move = move
             # If scores are equal and finite, the first encountered is fine (arbitrary tie-break)
 
-        selected_child = self.children.get(best_move) if best_move else None
+        selected_child: Optional[MCTSNode] = self.children.get(best_move) if best_move else None
         return best_move, selected_child
 
     def expand(
@@ -114,14 +117,14 @@ class MCTSNode:
         value: float,
         legal_moves: list[chess.Move],
         move_encoder: MoveEncoderDecoder,
-    ):
+    ) -> None:
         self.is_expanded = True
 
-        policy_probs_tensor = torch.softmax(policy_logits, dim=-1).squeeze(0)
+        policy_probs_tensor: torch.Tensor = torch.softmax(policy_logits, dim=-1).squeeze(0)
 
         self.P = {}
         for move in legal_moves:
-            move_idx = move_encoder.encode(board, move)
+            move_idx: int = move_encoder.encode(board, move)
             if move_idx < len(policy_probs_tensor):
                 self.P[move] = policy_probs_tensor[move_idx].item()
             else:
@@ -129,12 +132,12 @@ class MCTSNode:
 
         for move in legal_moves:
             if move not in self.children:
-                new_board = self.board.copy()
+                new_board: chess.Board = self.board.copy()
                 new_board.push(move)
                 self.children[move] = MCTSNode(new_board, parent=self, move=move)
 
-    def backpropagate(self, value: float, leaf_node_turn: chess.Color):
-        node = self
+    def backpropagate(self, value: float, leaf_node_turn: chess.Color) -> None:
+        node: Optional[MCTSNode] = self
         while node is not None:
             node.N += 1
             if node.board.turn == leaf_node_turn:
@@ -157,7 +160,7 @@ class MCTS:
         move_encoder: MoveEncoderDecoder,
         c_puct: float = 1.0,
         max_depth: int = 40,
-    ):
+    ) -> None:
         """
         Initializes the MCTS.
 
@@ -168,13 +171,13 @@ class MCTS:
             c_puct: Exploration constant for UCB.
             max_depth: Maximum depth for MCTS simulations to prevent infinite loops.
         """
-        self.model = model
-        self.chess_env = chess_env
-        self.move_encoder = move_encoder
-        self.c_puct = c_puct
-        self.max_depth = max_depth
+        self.model: torch.nn.Module = model
+        self.chess_env: ChessEnv = chess_env
+        self.move_encoder: MoveEncoderDecoder = move_encoder
+        self.c_puct: float = c_puct
+        self.max_depth: int = max_depth
 
-    def add_dirichlet_noise_to_root(self, root_node: MCTSNode, alpha: float, epsilon: float):
+    def add_dirichlet_noise_to_root(self, root_node: MCTSNode, alpha: float, epsilon: float) -> None:
         """
         Adds Dirichlet noise to the policy probabilities of the root node.
         This encourages exploration in the early stages of the search.
@@ -187,7 +190,7 @@ class MCTS:
         if root_node.P is None:
             return
 
-        moves = list(root_node.P.keys())
+        moves: list[chess.Move] = list(root_node.P.keys())
         if not moves:
             return
 
@@ -195,20 +198,22 @@ class MCTS:
             return
 
         # Ensure alpha is strictly positive for Dirichlet distribution
-        safe_alpha = max(alpha, 1e-5)
-        dirichlet_dist = torch.distributions.dirichlet.Dirichlet(torch.full((len(moves),), safe_alpha))
-        noise = dirichlet_dist.sample()
+        safe_alpha: float = max(alpha, 1e-5)
+        dirichlet_dist: torch.distributions.dirichlet.Dirichlet = torch.distributions.dirichlet.Dirichlet(
+            torch.full((len(moves),), safe_alpha)
+        )
+        noise: torch.Tensor = dirichlet_dist.sample()
 
         for i, move in enumerate(moves):
             root_node.P[move] = (1 - epsilon) * root_node.P[move] + epsilon * noise[i].item()
 
         # Re-normalize probabilities after adding noise
-        sum_p = sum(root_node.P.values())
+        sum_p: float = sum(root_node.P.values())
         if sum_p > 0:
             for move in moves:
                 root_node.P[move] /= sum_p
 
-    def run_simulations(self, root_node: MCTSNode, num_simulations: int):
+    def run_simulations(self, root_node: MCTSNode, num_simulations: int) -> None:
         """
         Runs a specified number of MCTS simulations starting from the root node.
 
@@ -224,13 +229,15 @@ class MCTS:
             num_simulations: The number of simulations to perform.
         """
         for i in range(num_simulations):
-            current_node = root_node
-            path = [current_node]
-            current_depth = 0
+            current_node: MCTSNode = root_node
+            path: list[MCTSNode] = [current_node]
+            current_depth: int = 0
 
             # Selection phase
-            game_is_over = current_node.board.is_game_over()
+            game_is_over: bool = current_node.board.is_game_over()
             while current_node.is_expanded and not game_is_over and current_depth < self.max_depth:
+                move: Optional[chess.Move]
+                next_node: Optional[MCTSNode]
                 move, next_node = current_node.select_child(self.c_puct)
                 if next_node is None:  # No legal moves from this node, or selection failed
                     break
@@ -248,27 +255,29 @@ class MCTS:
                 # Temporarily set the environment's board to the current node's board
                 # to get state planes for NN input. This is necessary because ChessEnv
                 # operates on its internal board state.
-                original_board = self.chess_env.board.copy()
+                original_board: chess.Board = self.chess_env.board.copy()
                 self.chess_env.board = current_node.board.copy()
-                board_state_planes = self.chess_env.get_state_planes()
+                board_state_planes: np.ndarray = self.chess_env.get_state_planes()
                 self.chess_env.board = original_board  # Restore original board
 
-                nn_input = torch.from_numpy(board_state_planes).float().unsqueeze(0)
+                nn_input: torch.Tensor = torch.from_numpy(board_state_planes).float().unsqueeze(0)
 
                 with torch.no_grad():
+                    policy_logits: torch.Tensor
+                    value: torch.Tensor
                     policy_logits, value = self.model(nn_input)
 
+                simulation_value: float = value.item()
                 current_node.expand(
                     current_node.board,
                     policy_logits,
-                    value.item(),
+                    simulation_value,
                     current_node.legal_moves,
                     self.move_encoder,
                 )
-                simulation_value = value.item()
             else:
                 # Terminal node: determine value based on game result
-                result = current_node.board.result()
+                result: str = current_node.board.result()
                 if result == "1-0":  # White wins
                     simulation_value = 1.0 if current_node.board.turn == chess.WHITE else -1.0
                 elif result == "0-1":  # Black wins
@@ -277,5 +286,5 @@ class MCTS:
                     simulation_value = 0.0
 
             # Backpropagation phase
-            leaf_node_turn = current_node.board.turn
+            leaf_node_turn: chess.Color = current_node.board.turn
             current_node.backpropagate(simulation_value, leaf_node_turn)

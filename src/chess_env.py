@@ -29,29 +29,31 @@ class ChessEnv:
     and conversion to neural network input planes.
     """
 
-    def __init__(self):
-        self.board = chess.Board()
-        self.board_history = deque(maxlen=NUM_HISTORY_PLANES)  # Store last 8 half-moves for input planes
+    def __init__(self) -> None:
+        self.board: chess.Board = chess.Board()
+        self.board_history: deque[chess.Board] = deque(
+            maxlen=NUM_HISTORY_PLANES
+        )  # Store last 8 half-moves for input planes
 
-    def reset(self):
+    def reset(self) -> np.ndarray:
         """Resets the board to the initial state."""
         self.board.reset()
         self.board_history.clear()
         self._update_history()
         return self.get_state_planes()
 
-    def push_move(self, move: chess.Move):
+    def push_move(self, move: chess.Move) -> tuple[np.ndarray, bool, str]:
         """Applies a move to the board."""
         self.board.push(move)
         self._update_history()
-        return self.get_state_planes(), self.board.is_game_over(), self.board.result()
+        return self.get_state_planes(), self.is_game_over(), self.result()
 
-    def _update_history(self):
+    def _update_history(self) -> None:
         """Adds the current board state to history."""
         # Store a copy of the board to prevent modification issues
         self.board_history.append(self.board.copy())
 
-    def get_legal_moves(self):
+    def get_legal_moves(self) -> list[chess.Move]:
         """Returns a list of legal moves."""
         return list(self.board.legal_moves)
 
@@ -74,12 +76,13 @@ class ChessEnv:
         Total planes: 29 (8x8 each).
         """
         # Initialize with 29 planes
-        planes = np.zeros((NUM_PLANES, 8, 8), dtype=np.float32)
+        planes: np.ndarray = np.zeros((NUM_PLANES, 8, 8), dtype=np.float32)
 
         # Piece planes (0-11)
         piece_map = self.board.piece_map()
         for square, piece in piece_map.items():
-            row, col = chess.square_rank(square), chess.square_file(square)
+            row: int = chess.square_rank(square)
+            col: int = chess.square_file(square)
             if piece.color == chess.WHITE:
                 planes[piece.piece_type - 1 + WHITE_PIECE_PLANES_START, row, col] = 1
             else:
@@ -146,6 +149,6 @@ class ChessEnv:
             return "1/2-1/2"
         return self.board.result()
 
-    def __str__(self):
+    def __str__(self) -> str:
         """String representation of the board."""
         return str(self.board)
