@@ -1,6 +1,4 @@
-import pytest
 import chess
-import numpy as np
 from src.chess_env import ChessEnv
 
 
