@@ -11,7 +11,7 @@ This document details the design of the neural network used in AlphaChess, which
 
 ### 2.1. Input Layer
 
-- The input to the network will be a tensor representing the encoded chess board state. The shape will be `(batch_size, num_planes, 8, 8)`, where `num_planes` depends on the chosen board representation (e.g., 12 for piece positions + additional planes for game state features like castling rights, en passant, halfmove clock, and potentially move history).
+- The input to the network is a tensor representing the encoded chess board state. The shape is `(batch_size, 29, 8, 8)`, where `29` is the number of input planes as defined in `docs/architecture.md` and `src/chess_env.py`.
 
 ### 2.2. Convolutional Trunk
 
@@ -31,7 +31,7 @@ This document details the design of the neural network used in AlphaChess, which
   - Batch normalization and ReLU activation.
   - A flattening operation to convert the feature map into a 1D vector.
   - A fully connected (dense) layer that maps the flattened features to a vector representing the probabilities of all possible moves. The size of this output vector will correspond to the total number of possible moves in chess (e.g., 4672 for a common move encoding scheme).
-  - A softmax activation function applied to the output to ensure the probabilities sum to 1.
+  - A `log_softmax` activation function applied to the output, as implemented, to ensure the probabilities sum to 1 (in log space).
 
 ### 2.4. Value Head
 

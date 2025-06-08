@@ -34,3 +34,4 @@ This document outlines the key architectural and design decisions made for the A
   - **Move History:** The last 8 half-moves (current board + 7 previous boards) are stacked as additional input planes. Each of these 8 planes indicates the player to move for that historical board (1 if white to move, 0 if black to move). This captures temporal information and helps handle situations like threefold repetition.
 
 The total number of planes will be 29 (12 for pieces + 2 for player to move + 4 for castling rights + 1 for en passant + 1 for halfmove clock + 1 for fullmove number + 8 for move history).
+Note: This is a simplified input representation compared to the 119 planes described in the original AlphaZero paper, which includes more detailed historical board states.

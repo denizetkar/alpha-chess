@@ -16,7 +16,7 @@ The following core components, as described in the design documentation, have be
     - 1 plane for en passant target square.
     - 1 plane for fifty-move rule counter (normalized).
     - 1 plane for fullmove number (normalized).
-    - **8 planes for Move History**: The last 8 half-moves are now included as input planes, indicating the player to move for each historical state. This addresses a previous shortcoming and enhances the network's temporal understanding.
+    - **8 planes for Move History**: The last 8 half-moves are now included as input planes, indicating the player to move for each historical state. This captures temporal information and helps handle situations like threefold repetition. Note: This is a simplified representation compared to AlphaZero's full historical board state planes.
 
 - **Move Encoder/Decoder (`src/move_encoder.py`)**:
 
@@ -27,7 +27,7 @@ The following core components, as described in the design documentation, have be
   - Implemented using PyTorch with a dual-head architecture (policy and value heads).
   - **Input Layer**: Configured to accept 29 input planes, aligning with the `ChessEnv`'s output.
   - **Architecture**: Features an initial convolutional block and configurable residual blocks, followed by a policy head (outputting 4672 move probabilities) and a value head (outputting a single scalar game outcome).
-  - **Hardware Optimizations**: The model is designed with VRAM management in mind and supports `torch.compile` for performance.
+  - **Hardware Optimizations**: The model is designed with VRAM management in mind and supports mixed-precision training (`torch.cuda.amp`) and `torch.compile` for performance.
 
 - **Monte Carlo Tree Search (MCTS) (`src/mcts.py`)**:
   - Implements the four phases: Selection (using UCB), Expansion (using NN for priors), Simulation (NN value prediction), and Backpropagation.
@@ -43,7 +43,7 @@ The training script is designed for robustness and efficiency:
 - **Neural Network Training Loop**:
   - Trains the network using policy (cross-entropy) and value (MSE) losses.
   - Uses the Adam optimizer.
-  - **L2 Regularization**: Now correctly applied via the `weight_decay` parameter in the Adam optimizer, addressing a previous shortcoming.
+  - **L2 Regularization**: Applied via the `weight_decay` parameter in the Adam optimizer, consistent with the `c||theta||^2` term in AlphaZero's loss function.
   - Supports configurable learning rate schedules (cosine annealing, exponential).
 - **Fault Tolerance**: Implements regular checkpointing of model and optimizer states, allowing training to be interrupted and resumed.
 - **Logging and Monitoring**: Integrates with TensorBoard for tracking various training metrics.
@@ -61,4 +61,4 @@ The testing script provides evaluation capabilities:
 
 ## 4. Unit Tests
 
-All existing unit tests (`tests/test_chess_env.py`, `tests/test_mcts.py`, `tests/test_move_encoder.py`, `tests/test_nn_model.py`) have been reviewed and updated as necessary to pass with the latest code changes, ensuring the correctness of the implemented features.
+All existing unit tests (`tests/test_chess_env.py`, `tests/test_mcts.py`, `tests/test_move_encoder.py`, `tests/test_nn_model.py`) have been thoroughly reviewed and updated. All tests are now passing, ensuring the correctness and reliability of the implemented features.
