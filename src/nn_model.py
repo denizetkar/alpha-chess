@@ -17,7 +17,7 @@ class AlphaChessNet(nn.Module):
 
         # Initial convolutional block
         self.conv_block = nn.Sequential(
-            nn.Conv2d(35, num_filters, kernel_size=3, padding=1),  # 35 input planes from ChessEnv
+            nn.Conv2d(21, num_filters, kernel_size=3, padding=1),  # 21 input planes from ChessEnv
             nn.BatchNorm2d(num_filters),
             nn.ReLU(),
         )
@@ -26,12 +26,19 @@ class AlphaChessNet(nn.Module):
         self.residual_blocks = nn.ModuleList([ResidualBlock(num_filters) for _ in range(num_residual_blocks)])
 
         # Policy head
+        # AlphaZero uses 73 action planes (8x8 board)
+        # 8 directions * 7 steps for Queen/Rook/Bishop moves (56)
+        # 8 Knight moves (8)
+        # 1 King move (8 directions, but often simplified to 1 plane for all king moves)
+        # Pawn moves: 2 pushes, 2 captures, 3 underpromotions for each.
+        # Total 73 planes: 56 + 8 + 9 (for king moves, pawn moves, and underpromotions)
+        # This is a common interpretation.
         self.policy_head = nn.Sequential(
-            nn.Conv2d(num_filters, 2, kernel_size=1),  # 2 filters for policy (e.g., one for move, one for pass)
-            nn.BatchNorm2d(2),
+            nn.Conv2d(num_filters, 73, kernel_size=1),  # 73 action planes
+            nn.BatchNorm2d(73),
             nn.ReLU(),
             nn.Flatten(),
-            nn.Linear(2 * 8 * 8, 4672),  # 4672 is a common number of possible moves in chess
+            nn.Linear(73 * 8 * 8, 4672),  # Flattened to 4672
         )
 
         # Value head
@@ -86,7 +93,7 @@ class ResidualBlock(nn.Module):
 if __name__ == "__main__":
     # Test with default parameters
     model = AlphaChessNet()
-    dummy_input = torch.randn(1, 35, 8, 8)  # Batch size 1, 35 planes, 8x8 board
+    dummy_input = torch.randn(1, 21, 8, 8)  # Batch size 1, 21 planes, 8x8 board
     policy_logits, value = model(dummy_input)
 
     print(f"Model: {model}")
@@ -95,7 +102,7 @@ if __name__ == "__main__":
 
     # Test with custom parameters
     model_large = AlphaChessNet(num_residual_blocks=20, num_filters=512)
-    dummy_input_large = torch.randn(2, 35, 8, 8)  # Batch size 2
+    dummy_input_large = torch.randn(2, 21, 8, 8)  # Batch size 2
     policy_logits_large, value_large = model_large(dummy_input_large)
 
     print(f"\nModel (Large): {model_large}")
@@ -106,7 +113,7 @@ if __name__ == "__main__":
     if torch.cuda.is_available():
         print("\nCUDA is available. Testing model on GPU.")
         model_gpu = AlphaChessNet().cuda()
-        dummy_input_gpu = torch.randn(1, 35, 8, 8).cuda()
+        dummy_input_gpu = torch.randn(1, 21, 8, 8).cuda()
         policy_logits_gpu, value_gpu = model_gpu(dummy_input_gpu)
         print(f"Policy logits (GPU) device: {policy_logits_gpu.device}")
         print(f"Value (GPU) device: {value_gpu.device}")

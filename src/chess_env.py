@@ -40,13 +40,13 @@ class ChessEnv:
         16: Castling rights (Black King-side)
         17: Castling rights (Black Queen-side)
         18: En passant target square
-        19: Fifty-move rule counter (repeatedly for 8 planes, 0-7)
-        20: Fullmove number (repeatedly for 8 planes, 0-7)
+        19: Fifty-move rule counter (normalized)
+        20: Fullmove number (normalized)
 
-        Total planes: 12 + 2 + 4 + 1 + 8 + 8 = 35 planes.
+        Total planes: 12 + 2 + 4 + 1 + 1 + 1 = 21 planes.
         Each plane is 8x8.
         """
-        planes = np.zeros((35, 8, 8), dtype=np.float32)
+        planes = np.zeros((21, 8, 8), dtype=np.float32)
 
         # Piece planes (0-11)
         piece_map = self.board.piece_map()
@@ -78,16 +78,15 @@ class ChessEnv:
             row, col = chess.square_rank(self.board.ep_square), chess.square_file(self.board.ep_square)
             planes[18, row, col] = 1
 
-        # Fifty-move rule counter (19-26) - using 8 planes for 0-7
-        # This is a simplified representation. A more accurate one might use one-hot or direct value.
-        # For now, we'll just set planes based on the counter value up to 7.
-        for i in range(min(self.board.halfmove_clock, 8)):
-            planes[19 + i, :, :] = 1
+        # Fifty-move rule counter (19) - normalized
+        # Max halfmove_clock for fifty-move rule is 100.
+        planes[19, :, :] = self.board.halfmove_clock / 100.0
 
-        # Fullmove number (27-34) - using 8 planes for 0-7
-        # Similar simplification for fullmove number.
-        for i in range(min(self.board.fullmove_number - 1, 8)):  # fullmove_number starts at 1
-            planes[27 + i, :, :] = 1
+        # Fullmove number (20) - normalized
+        # Fullmove number can go very high, normalize by a large constant.
+        # A typical game might have 50-100 full moves, but can be much more.
+        # Using 2000 as a rough upper bound for normalization.
+        planes[20, :, :] = (self.board.fullmove_number - 1) / 2000.0
 
         return planes
 
