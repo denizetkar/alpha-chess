@@ -216,29 +216,30 @@ class TestChessEnv:
         assert env.is_game_over()
         assert env.result() == "1/2-1/2"
 
-        # Test Threefold Repetition
-        env.reset()
-        # Test Threefold Repetition (Positional Repetition)
-        # This tests board.is_repetition(3), which checks for positional repetition
-        # without considering the halfmove clock or castling rights.
-        # A stricter check (can_claim_threefold_repetition) would require identical FENs
-        # including halfmove clock, which is harder to achieve with simple sequences.
+        # Test Threefold Repetition (using can_claim_threefold_repetition)
         env.reset()
         # Sequence: 1. Nf3 Nc6 2. Ng1 Nb8 3. Nf3 Nc6 4. Ng1 Nb8 5. Nf3
-        # The position after White's 1st move (Nf3) will repeat for the third time after White's 5th move (Nf3).
-        env.push_move(chess.Move.from_uci("g1f3"))  # Position A (1st occurrence)
-        env.push_move(chess.Move.from_uci("b8c6"))  # Position B (1st occurrence)
-        env.push_move(chess.Move.from_uci("f3g1"))  # Position C (1st occurrence)
-        env.push_move(chess.Move.from_uci("c6b8"))  # Position D (1st occurrence)
-        env.push_move(chess.Move.from_uci("g1f3"))  # Position A (2nd occurrence)
-        env.push_move(chess.Move.from_uci("b8c6"))  # Position B (2nd occurrence)
-        env.push_move(chess.Move.from_uci("f3g1"))  # Position C (2nd occurrence)
-        env.push_move(chess.Move.from_uci("c6b8"))  # Position D (2nd occurrence)
-        env.push_move(chess.Move.from_uci("g1f3"))  # Position A (3rd occurrence)
-        assert env.board.is_repetition(3)  # Check for 3rd repetition of Position A
-        # Note: env.is_game_over() and env.result() are not asserted here because
-        # they rely on can_claim_threefold_repetition(), which has stricter FEN matching
-        # (including halfmove clock) and is not the focus of this positional repetition test.
+        # This sequence ensures the FEN (including halfmove clock, castling rights, en passant)
+        # repeats exactly three times for the position after White's Nf3.
+        moves_for_repetition = [
+            "g1f3",
+            "b8c6",  # Pos A (1st), Pos B (1st)
+            "f3g1",
+            "c6b8",  # Pos C (1st), Pos D (1st)
+            "g1f3",
+            "b8c6",  # Pos A (2nd), Pos B (2nd)
+            "f3g1",
+            "c6b8",  # Pos C (2nd), Pos D (2nd)
+            "g1f3",  # Pos A (3rd)
+        ]
+        for move_uci in moves_for_repetition:
+            env.push_move(chess.Move.from_uci(move_uci))
+
+        # At this point, the position after White's Nf3 has occurred 3 times.
+        # The halfmove clock should be consistent as no captures or pawn moves occurred.
+        assert env.board.can_claim_threefold_repetition()
+        assert env.is_game_over()
+        assert env.result() == "1/2-1/2"
 
         # Test Fifty-move Rule Draw
         env.reset()
