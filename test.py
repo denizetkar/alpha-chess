@@ -361,8 +361,8 @@ def main() -> None:
     parser.add_argument(
         "--use_torch_compile",
         action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Use torch.compile for model optimization (default: True).",
+        default=False,
+        help="Use torch.compile for model optimization (default: False).",
     )
 
     # Self-play specific arguments

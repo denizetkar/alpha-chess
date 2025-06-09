@@ -65,6 +65,7 @@ class Trainer:
 
         self.replay_buffer = deque(maxlen=self.config["training"]["replay_buffer_capacity"])
         self.writer = SummaryWriter(log_dir=self.config["logging"]["tensorboard_log_dir"])
+        print(f"TensorBoard log directory: {self.writer.log_dir}")
 
         self.checkpoint_dir = self.config["checkpointing"]["checkpoint_dir"]
         os.makedirs(self.checkpoint_dir, exist_ok=True)
@@ -311,6 +312,7 @@ class Trainer:
             if self.scheduler:
                 self.scheduler.step()
 
+            print(f"Logging to TensorBoard: Policy Loss={policy_loss.item():.4f}, Value Loss={value_loss.item():.4f}")
             self.writer.add_scalar("Loss/Policy", policy_loss.item(), iteration * num_training_steps + step)
             self.writer.add_scalar("Loss/Value", value_loss.item(), iteration * num_training_steps + step)
             self.writer.add_scalar("Loss/Total", total_loss.item(), iteration * num_training_steps + step)
