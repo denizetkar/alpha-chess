@@ -1,10 +1,9 @@
 model:
   num_residual_blocks: 2
   num_filters: 64
+  use_torch_compile: false
 mcts:
   c_puct: 1.0
   simulations_per_move: 10
 checkpointing:
   checkpoint_dir: "checkpoints"
-testing:
-  use_torch_compile: false

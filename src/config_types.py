@@ -4,7 +4,7 @@ from typing import TypedDict, Optional
 class ModelConfig(TypedDict):
     num_residual_blocks: int
     num_filters: int
-    use_torch_compile: bool  # Added for train_config and test_config
+    use_torch_compile: bool
 
 
 class LRSchedulerConfig(TypedDict):
@@ -17,40 +17,40 @@ class LRSchedulerConfig(TypedDict):
 
 class TrainingConfig(TypedDict):
     num_iterations: int
-    num_games_per_iteration: int  # Renamed from num_self_play_games_per_iteration
-    num_epochs: int  # Added
+    num_games_per_iteration: int
+    num_epochs: int
     batch_size: int
     num_training_steps: int
     learning_rate: float
-    l2_regularization: float  # Renamed from l2_regularization_coeff
-    momentum: float  # Added
-    clip_norm: int  # Added
-    value_loss_weight: float  # Added
-    policy_loss_weight: float  # Added
-    temperature: float  # Added
-    cpu_threads: int  # Added
+    l2_regularization: float
+    momentum: float
+    clip_norm: int
+    value_loss_weight: float
+    policy_loss_weight: float
+    temperature: float
+    cpu_threads: int
     replay_buffer_capacity: int
     lr_scheduler: LRSchedulerConfig
-    use_mixed_precision: bool  # Added
+    use_mixed_precision: bool
     use_torch_compile: bool
     seed: Optional[int]
 
 
 class MCTSConfig(TypedDict):
-    num_simulations: int  # Added
+    num_simulations: int
     c_puct: float
-    temp_threshold: int  # Added
+    temp_threshold: int
     max_depth: int
     simulations_per_move: int
-    dirichlet_alpha: float  # Added for train_config
-    dirichlet_epsilon: float  # Added for train_config
+    dirichlet_alpha: float
+    dirichlet_epsilon: float
 
 
 class CheckpointingConfig(TypedDict):
     checkpoint_dir: str
-    save_interval: int  # Added
-    log_interval: int  # Added
-    checkpoint_path: str  # Added
+    save_interval: int
+    log_interval: int
+    checkpoint_path: str
     load_checkpoint: bool
     load_checkpoint_path: Optional[str]
 
@@ -69,12 +69,9 @@ class TrainFullConfig(TypedDict):
 
 
 class TestingConfig(TypedDict):
-    # These fields are present in test_config.yaml but are part of other sections in train_config.yaml
-    # For test_config, they are directly under the root or 'testing' section.
-    # I will define a structure that allows for partial configs to be loaded.
-    # For the 'test.py' script, it expects 'model', 'mcts', 'checkpointing' and 'testing' at the top level.
-    # So, I will define a TestFullConfig that mirrors this structure.
-    use_torch_compile: bool
+    # This config is currently empty as use_torch_compile was moved to ModelConfig
+    # If other testing-specific parameters are added, they would go here.
+    pass
 
 
 class TestFullConfig(TypedDict):

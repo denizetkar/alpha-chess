@@ -27,25 +27,23 @@ def load_config(config_path: str) -> TestFullConfig:
             return {
                 "model": {"num_residual_blocks": 2, "num_filters": 128, "use_torch_compile": False},
                 "mcts": {
-                    "c_puct": 1.0,
-                    "simulations_per_move": 100,
-                    "max_depth": 10,
                     "num_simulations": 10,
+                    "c_puct": 1.0,
+                    "temp_threshold": 1,
+                    "max_depth": 2,
+                    "simulations_per_move": 10,
                     "dirichlet_alpha": 0.3,
                     "dirichlet_epsilon": 0.25,
-                    "temp_threshold": 1,
                 },
                 "checkpointing": {
                     "checkpoint_dir": "checkpoints",
-                    "save_interval": 10,
-                    "load_checkpoint": False,
-                    "load_checkpoint_path": None,
+                    "save_interval": 1,
                     "log_interval": 1,
                     "checkpoint_path": "checkpoints/model.pth",
+                    "load_checkpoint": False,
+                    "load_checkpoint_path": None,
                 },
-                "testing": {
-                    "use_torch_compile": False,
-                },
+                "testing": {},
             }
 
         with open(config_path, "r") as f:
@@ -88,7 +86,7 @@ class Tester:
         self.model.eval()  # Set model to evaluation mode
 
         # Compile the model if PyTorch 2.0+ is available and configured
-        if self.config["testing"]["use_torch_compile"] and hasattr(torch, "compile"):
+        if self.config["model"]["use_torch_compile"] and hasattr(torch, "compile"):
             print("Compiling model with torch.compile for testing...")
             self.model = torch.compile(self.model)  # type: ignore
 
@@ -316,7 +314,7 @@ def _apply_cli_overrides(config: TestFullConfig, args: argparse.Namespace) -> Te
     if args.c_puct is not None:
         config["mcts"]["c_puct"] = args.c_puct
     if args.use_torch_compile is not None:
-        config["testing"]["use_torch_compile"] = args.use_torch_compile
+        config["model"]["use_torch_compile"] = args.use_torch_compile
 
     # Ensure checkpoint_path is set in config for Tester to use
     config["checkpointing"]["load_checkpoint_path"] = args.checkpoint_path
