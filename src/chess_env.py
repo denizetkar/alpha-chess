@@ -133,20 +133,13 @@ class ChessEnv:
         """
         Checks if the game is over, including claimable draws like threefold repetition.
         """
-        if self.board.is_game_over():
-            return True
-        # Explicitly check for claimable threefold repetition
-        if self.board.can_claim_threefold_repetition():
-            return True
-        return False
+        return self.board.is_game_over()
 
     def result(self) -> str:
         """
         Returns the game result string.
-        If the game is over by threefold repetition, returns '1/2-1/2'.
+        Returns the game result string.
         """
-        if self.board.can_claim_threefold_repetition():
-            return "1/2-1/2"
         return self.board.result()
 
     def __str__(self) -> str:

@@ -3,11 +3,13 @@ import torch
 import chess
 import yaml
 import os  # Import os
+import random  # Import random
+import numpy as np  # Import numpy
 from tqdm import tqdm  # Import tqdm
 from src.chess_env import ChessEnv
 from src.nn_model import AlphaChessNet
 from src.mcts import MCTSNode, MCTS
-from src.move_encoder import MoveEncoderDecoder
+from src.move_encoder import MoveEncoderDecoder, MOVE_ENCODING_SIZE
 from src.config_types import TestFullConfig
 
 
@@ -23,7 +25,6 @@ def load_config(config_path: str) -> TestFullConfig:
     """
     try:
         if not os.path.exists(config_path):
-            print(f"Configuration file not found at {config_path}. Using default configuration.")
             return {
                 "model": {"num_residual_blocks": 2, "num_filters": 128, "use_torch_compile": False},
                 "mcts": {
@@ -49,14 +50,11 @@ def load_config(config_path: str) -> TestFullConfig:
         with open(config_path, "r") as f:
             config = yaml.safe_load(f)
             if config is None:  # Handle empty config file
-                print(f"Configuration file {config_path} is empty. Using default configuration.")
                 return load_config("")  # Recursively call with empty path to get defaults
             return config
-    except yaml.YAMLError as e:
-        print(f"Error parsing configuration file {config_path}: {e}. Using default configuration.")
+    except yaml.YAMLError:
         return load_config("")  # Recursively call with empty path to get defaults
     except FileNotFoundError:
-        print(f"Error: Config file not found at {config_path}")
         exit(1)
 
 
@@ -87,7 +85,6 @@ class Tester:
 
         # Compile the model if PyTorch 2.0+ is available and configured
         if self.config["model"]["use_torch_compile"] and hasattr(torch, "compile"):
-            print("Compiling model with torch.compile for testing...")
             self.model = torch.compile(self.model)  # type: ignore
 
         self.checkpoint_dir = self.config["checkpointing"]["checkpoint_dir"]
@@ -101,7 +98,6 @@ class Tester:
         """
         checkpoint: dict = torch.load(checkpoint_path, map_location=self.device)
         self.model.load_state_dict(checkpoint["model_state_dict"])  # type: ignore
-        print(f"Model loaded from {checkpoint_path}")
 
     def _play_game_with_agent(self, agent_color: chess.Color) -> tuple[str, list[chess.Move]]:
         """
@@ -168,21 +164,12 @@ class Tester:
         Args:
             num_games (int): The number of self-play games to run.
         """
-        print(f"\n--- Running {num_games} Self-Play Test Games ---")
         results: dict[str, int] = {"1-0": 0, "0-1": 0, "1/2-1/2": 0}
 
         for i in tqdm(range(num_games), desc="Self-Play Test"):
-            # Agent plays against itself (White vs Black)
-            # For simplicity, let's assume the agent always plays both sides.
-            # The MCTS will be initialized with the current model.
-
-            # The _play_game_with_agent method is designed for agent vs human.
-            # For self-play, we just need to run the self-play loop from train.py
-            # but without data collection or training.
-
             self.chess_env.reset()
             current_board = self.chess_env.board.copy()
-            root_node = MCTSNode(current_board)
+            root_node = MCTSNode(current_board)  # Initialize root_node once per game
             mcts = MCTS(
                 self.model,
                 self.chess_env,
@@ -192,32 +179,72 @@ class Tester:
             )
 
             while not current_board.is_game_over():
+                legal_moves_list = list(current_board.legal_moves)
+
                 mcts.run_simulations(root_node, self.config["mcts"]["simulations_per_move"])
 
+                # print(f"MCTS Root Node Q: {root_node.Q}")
+
+                chosen_move = None
                 if root_node.N > 0:
-                    # Select move based on visit counts (deterministic for testing)
-                    best_move = None
-                    max_visits = -1
+                    policy_target = np.zeros(MOVE_ENCODING_SIZE)
                     for move, child_node in root_node.children.items():
-                        if child_node.N > max_visits:
-                            max_visits = child_node.N
-                            best_move = move
-                    chosen_move = best_move
+                        move_idx = self.move_encoder.encode(current_board, move)
+                        if move_idx < MOVE_ENCODING_SIZE:
+                            policy_target[move_idx] = child_node.N
+
+                    # print(f"Policy Target (before norm): {policy_target}")
+
+                    sum_visits = np.sum(policy_target)
+                    if sum_visits > 0:
+                        policy_target = policy_target / sum_visits
+                    else:
+                        if legal_moves_list:
+                            for move in legal_moves_list:
+                                move_idx = self.move_encoder.encode(current_board, move)
+                                if move_idx < MOVE_ENCODING_SIZE:
+                                    policy_target[move_idx] = 1.0 / len(legal_moves_list)
+                        else:
+                            chosen_move = None  # No legal moves, game should be over
+
+                    if chosen_move is None:  # Only proceed if a move can potentially be chosen
+                        if self.chess_env.board.fullmove_number <= self.config["mcts"]["temp_threshold"]:
+                            # Add a small epsilon to probabilities to avoid issues with np.random.choice on zero sums
+                            temp_policy = np.power(policy_target, 1.0 / 1.0)
+                            temp_policy_sum = np.sum(temp_policy)
+                            if temp_policy_sum > 0:
+                                temp_policy /= temp_policy_sum
+                                chosen_move_idx = int(np.random.choice(len(temp_policy), p=temp_policy))
+                            else:
+                                chosen_move_idx = -1  # Indicate no valid choice
+                        else:
+                            chosen_move_idx = int(np.argmax(policy_target))
+
+                        if chosen_move_idx != -1:
+                            chosen_move = self.move_encoder.decode(chosen_move_idx)
+                        else:
+                            chosen_move = None  # No valid move could be chosen from policy
+
+                    if chosen_move is None or chosen_move not in current_board.legal_moves:
+                        if legal_moves_list:
+                            chosen_move = random.choice(legal_moves_list)
+                        else:
+                            chosen_move = None
                 else:
-                    legal_moves_list = list(current_board.legal_moves)
-                    chosen_move = legal_moves_list[0] if legal_moves_list else None
+                    if legal_moves_list:
+                        chosen_move = random.choice(legal_moves_list)
+                    else:
+                        chosen_move = None
 
                 if chosen_move is None:
                     break
 
                 current_board.push(chosen_move)
                 self.chess_env.board = current_board.copy()
-
-                if chosen_move in root_node.children:
-                    root_node = root_node.children[chosen_move]
-                    root_node.parent = None
-                else:
-                    root_node = MCTSNode(current_board)
+                # Update root_node to the child corresponding to the chosen_move
+                # If the child doesn't exist (e.g., due to random fallback), create a new node
+                root_node = root_node.children.get(chosen_move, MCTSNode(current_board))
+                root_node.parent = None  # Detach from old tree
 
             game_result = current_board.result()
             results[game_result] += 1
@@ -368,7 +395,7 @@ def main() -> None:
     self_play_group.add_argument(
         "--num_games",
         type=int,
-        default=5,
+        default=1,  # Changed to 1 for detailed debugging
         help="Number of self-play games to run.",
     )
 
@@ -402,8 +429,10 @@ def main() -> None:
 
     tester = Tester(config)  # Pass the config directly
 
-    if args.checkpoint_path:
+    if args.checkpoint_path and os.path.exists(args.checkpoint_path):
         tester._load_model(args.checkpoint_path)
+    else:
+        print(f"Warning: Checkpoint path '{args.checkpoint_path}' not found. Using randomly initialized model.")
 
     try:
         if args.self_play:

@@ -3,7 +3,8 @@ model:
   num_filters: 8
   use_torch_compile: false
 mcts:
-  c_puct: 1.0
-  simulations_per_move: 10
+  c_puct: 2.0
+  temp_threshold: 10
+  simulations_per_move: 2
 checkpointing:
   checkpoint_dir: "checkpoints"

@@ -123,12 +123,24 @@ class MCTSNode:
         policy_probs_tensor: torch.Tensor = torch.softmax(policy_logits, dim=-1).squeeze(0)
 
         self.P = {}
+        min_prior_prob = 1e-6  # A small positive value
         for move in legal_moves:
             move_idx: int = move_encoder.encode(board, move)
             if move_idx < len(policy_probs_tensor):
-                self.P[move] = policy_probs_tensor[move_idx].item()
+                # Ensure a minimum prior probability to allow exploration
+                self.P[move] = max(policy_probs_tensor[move_idx].item(), min_prior_prob)
             else:
-                self.P[move] = 0.0
+                self.P[move] = min_prior_prob  # Assign minimum if move_idx is out of bounds or 0.0
+
+        # Re-normalize probabilities after ensuring minimums
+        sum_p: float = sum(self.P.values())
+        if sum_p > 0:
+            for move in legal_moves:
+                self.P[move] /= sum_p
+        else:
+            # Fallback to uniform if all priors are zero (shouldn't happen with min_prior_prob)
+            for move in legal_moves:
+                self.P[move] = 1.0 / len(legal_moves) if legal_moves else 0.0
 
         for move in legal_moves:
             if move not in self.children:

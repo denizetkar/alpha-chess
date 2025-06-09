@@ -1,0 +1,28 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: Current File",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Python: Debug AlphaChess Test",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/test.py",
+      "args": [
+        "--self-play",
+        "--num_games",
+        "1",
+        "--checkpoint_path",
+        "checkpoints/model_iter_1.pth"
+      ],
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ]
+}
