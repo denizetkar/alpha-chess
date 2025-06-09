@@ -32,7 +32,6 @@ class TrainingConfig(TypedDict):
     replay_buffer_capacity: int
     lr_scheduler: LRSchedulerConfig
     use_mixed_precision: bool
-    use_torch_compile: bool
     seed: Optional[int]
 
 

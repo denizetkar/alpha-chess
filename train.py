@@ -492,7 +492,6 @@ def load_config(config_path: str) -> TrainFullConfig:
                 "training": {
                     "learning_rate": 0.001,
                     "l2_regularization": 0.0001,
-                    "use_torch_compile": False,
                     "lr_scheduler": {
                         "use_scheduler": False,
                         "type": "cosine_annealing",

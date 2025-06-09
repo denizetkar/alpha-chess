@@ -194,3 +194,4 @@ pyrightconfig.json
 
 /runs/
 /checkpoints/
+*.pth
