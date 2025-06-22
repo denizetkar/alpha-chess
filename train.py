@@ -103,30 +103,8 @@ class Trainer:
             print(f"Error loading checkpoint from {checkpoint_path}: {e}. Starting from scratch.")
             return 0
 
-    def _apply_dirichlet_noise(self, root_node, current_board, dirichlet_alpha, dirichlet_epsilon):
-        """Applies Dirichlet noise to the prior probabilities of legal moves."""
-        prior_probs = np.zeros(MOVE_ENCODING_SIZE)
-        legal_moves_indices = []
-        for move in root_node.legal_moves:
-            move_idx = self.move_encoder.encode(current_board, move)
-            if move_idx < MOVE_ENCODING_SIZE:
-                prior_probs[move_idx] = root_node.P.get(move, 0.0) if root_node.P is not None else 0.0
-                legal_moves_indices.append(move_idx)
-
-        if legal_moves_indices:
-            noise = np.random.dirichlet([dirichlet_alpha] * len(legal_moves_indices))
-            for i, idx in enumerate(legal_moves_indices):
-                prior_probs[idx] = (1 - dirichlet_epsilon) * prior_probs[idx] + dirichlet_epsilon * noise[i]
-
-            sum_noisy_probs = np.sum(prior_probs[legal_moves_indices])
-            if sum_noisy_probs > 0:
-                prior_probs[legal_moves_indices] /= sum_noisy_probs
-            else:
-                prior_probs[legal_moves_indices] = 1.0 / len(legal_moves_indices)
-        return prior_probs
-
-    def _get_policy_target_and_chosen_move(self, root_node, current_board, prior_probs):
-        """Calculates policy target and selects a move based on MCTS visit counts and priors."""
+    def _get_policy_target_and_chosen_move(self, root_node, current_board):
+        """Calculates policy target and selects a move based on MCTS visit counts."""
         policy_target = np.zeros(MOVE_ENCODING_SIZE)
         for move, child_node in root_node.children.items():
             move_idx = self.move_encoder.encode(current_board, move)
@@ -136,24 +114,42 @@ class Trainer:
         sum_visits = np.sum(policy_target)
         if sum_visits > 0:
             policy_target = policy_target / sum_visits
+        elif root_node.P is not None:
+            # Fallback to prior probabilities if no visits (e.g., first expansion)
+            for move in root_node.legal_moves:
+                move_idx = self.move_encoder.encode(current_board, move)
+                if move_idx < MOVE_ENCODING_SIZE:
+                    policy_target[move_idx] = root_node.P.get(move, 0.0)
+            # Re-normalize if using priors as fallback
+            sum_priors = np.sum(policy_target)
+            if sum_priors > 0:
+                policy_target /= sum_priors
+            else:
+                # Fallback to uniform if priors are also zero
+                legal_moves_list = list(current_board.legal_moves)
+                if legal_moves_list:
+                    for move in legal_moves_list:
+                        move_idx = self.move_encoder.encode(current_board, move)
+                        policy_target[move_idx] = 1.0 / len(legal_moves_list)
+                else:
+                    return policy_target, None  # No legal moves, game over
         else:
-            policy_target = prior_probs
-
-        chosen_move = None
-        policy_target_sum = np.sum(policy_target)
-        if policy_target_sum == 0:
+            # Fallback to uniform if no visits and no priors (should not happen after expansion)
             legal_moves_list = list(current_board.legal_moves)
             if legal_moves_list:
-                policy_target = np.zeros(MOVE_ENCODING_SIZE)
                 for move in legal_moves_list:
                     move_idx = self.move_encoder.encode(current_board, move)
                     policy_target[move_idx] = 1.0 / len(legal_moves_list)
             else:
                 return policy_target, None  # No legal moves, game over
 
-        chosen_move_idx = np.random.choice(len(policy_target), p=policy_target)
-        chosen_move = self.move_encoder.decode(chosen_move_idx)
+        chosen_move = None
+        # Ensure policy_target has positive values for np.random.choice
+        if np.sum(policy_target) > 0:
+            chosen_move_idx = np.random.choice(len(policy_target), p=policy_target)
+            chosen_move = self.move_encoder.decode(chosen_move_idx)
 
+        # Fallback to random legal move if chosen_move is invalid or None
         if chosen_move is None or chosen_move not in current_board.legal_moves:
             legal_moves_list = list(current_board.legal_moves)
             if legal_moves_list:
@@ -171,54 +167,37 @@ class Trainer:
             self.model,
             self.chess_env,
             self.move_encoder,
-            device=self.device,  # Pass the device
+            device=self.device,
             c_puct=self.config["mcts"]["c_puct"],
             max_depth=self.config["mcts"]["max_depth"],
         )
 
         while not current_board.is_game_over():
+            # Apply Dirichlet noise to the root node's prior probabilities for exploration
+            # This is applied before running simulations for the current move.
+            dirichlet_alpha = self.config["mcts"]["dirichlet_alpha"]
+            dirichlet_epsilon = self.config["mcts"]["dirichlet_epsilon"]
+            mcts.add_dirichlet_noise_to_root(root_node, dirichlet_alpha, dirichlet_epsilon)
+
             mcts.run_simulations(root_node, self.config["mcts"]["simulations_per_move"])
 
-            chosen_move = None
-            policy_target = (
-                np.ones(MOVE_ENCODING_SIZE) / MOVE_ENCODING_SIZE
-            )  # Initialize policy_target to uniform distribution
+            # Policy target is derived from MCTS visit counts (or priors if no visits)
+            policy_target, chosen_move = self._get_policy_target_and_chosen_move(root_node, current_board)
 
-            if root_node.N > 0:
-                # Add Dirichlet noise to the root node's prior probabilities for exploration
-                # This is applied to the policy probabilities before selecting a move.
-                dirichlet_alpha = self.config["mcts"]["dirichlet_alpha"]
-                dirichlet_epsilon = self.config["mcts"]["dirichlet_epsilon"]
-
-                prior_probs = self._apply_dirichlet_noise(root_node, current_board, dirichlet_alpha, dirichlet_epsilon)
-                policy_target, chosen_move = self._get_policy_target_and_chosen_move(
-                    root_node, current_board, prior_probs
-                )
-                if chosen_move is None:
-                    break  # No legal moves or problem during selection, end game
-            else:
-                # If MCTS couldn't find any moves (e.g., root_node.N is 0),
-                # this implies a problem or terminal state.
-                # Fallback: choose a random legal move.
-                legal_moves_list = list(current_board.legal_moves)
-                if legal_moves_list:
-                    chosen_move = random.choice(legal_moves_list)
-                else:
-                    break  # No legal moves, game over
-
-            # Ensure chosen_move is not None before pushing
             if chosen_move is None:
-                break  # Should not happen with fallbacks, but as a safeguard
+                break  # No legal moves or problem during selection, end game
 
             game_states.append((self.chess_env.get_state_planes(), policy_target, current_board.turn))
 
             current_board.push(chosen_move)
             self.chess_env.board = current_board.copy()
 
+            # Advance the root node to the chosen child, or create a new root if the child doesn't exist
             if chosen_move in root_node.children:
                 root_node = root_node.children[chosen_move]
-                root_node.parent = None
+                root_node.parent = None  # Detach from old tree to save memory
             else:
+                # This can happen if the chosen_move was a random fallback and not in MCTS children
                 root_node = MCTSNode(current_board)
 
         game_result = self.chess_env.result()
@@ -276,9 +255,9 @@ class Trainer:
 
         except Exception as e:
             print(f"An unexpected error occurred during training: {e}")
-        finally:
-            self.writer.close()
-            print("Training complete (or terminated due to error).")
+            import sys
+
+            sys.exit(1)  # Exit with a non-zero status code to indicate an error
 
     def _perform_training_step(self, batch_size, iteration, num_training_steps, step):
         """Performs a single training step."""
